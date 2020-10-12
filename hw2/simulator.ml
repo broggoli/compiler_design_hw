@@ -6,7 +6,7 @@
 *)
 
 open X86
-
+open Int64_overflow
 (* simulator machine state -------------------------------------------------- *)
 
 let mem_bot = 0x400000L          (* lowest valid address *)
@@ -60,10 +60,6 @@ type sbyte = InsB0 of ins       (* 1st byte of an instruction *)
            | InsFrag            (* 2nd - 8th bytes of an instruction *)
            | Byte of char       (* non-instruction byte *)
 
-(* types that can be mapped to sbyte representation*)
-type writeable =  Quad of quad
-                | Str of string
-                | Ins of ins
 (* memory maps addresses to symbolic bytes *)
 type mem = sbyte array
 
@@ -115,7 +111,7 @@ let int64_of_sbytes (bs:sbyte list) : int64 =
 let sbytes_of_string (s:string) : sbyte list =
   let rec loop acc = function
     | i when i < 0 -> acc
-    | i -> loop (Byte s.[i]::acc) (pred i)
+    | i -> loop (Byte s.[i]::acc) (Int.pred i)
   in
   loop [Byte '\x00'] @@ String.length s - 1
 
@@ -164,55 +160,61 @@ let map_addr (addr:quad) : int option =
   else None
 
 
-(* Returns the address or offset reffered to by the opperand *)
-let read (m:mach) (operand:operand): int64 = 
-  let read_reg (reg:reg) : int64 = m.regs.( rind reg ) in
-  let read_mem (m:mach) (addr:quad) : sbyte list =
-    match map_addr addr with
-      | Some a  ->  let line = Array.make 8 InsFrag in
-                    let _ = Array.blit m.mem a line 0 8 in
-                    Array.to_list line
-      | None    -> raise X86lite_segfault
-  in
-
-  let extract_lit (i:imm) l = (match i with
-    | Lit q -> f
-    | Lbl l -> raise @@ Is_label l
-  ) in
-  match operand with 
-   Imm i                -> (match i with 
-                            | Lit q -> q
-                            | Lbl l -> raise @@ Is_label l
-                          )
-  | Reg r               -> read_reg r
-  | Ind1 i              -> extract_lit i @@ int64_of_sbytes @@ read_mem m q
-  | Ind2 r              -> int64_of_sbytes @@ read_mem @@ read_reg r
-  | Ind3 (i, r)         -> extract_lit i @@ int64_of_sbytes @@ read_mem (Int64.add q @@ read_reg r)
-
-let write (m:mach) (operand: operand) (value: writeable) =
-  let write_reg (reg:reg) (value:int64): unit = m.regs.( rind reg ) <- value in
-  let write_mem (m:mach) (addr:quad) (value:writeable) : unit =
-    let sbyte_represent = 
-      match value with 
-        | Quad q  -> sbytes_of_int64 q
-        | Str s   -> sbytes_of_string
-        | Ins i   -> sbytes_of_ins (fst i, i)
-    in
-    let to_write = Array.of_list sbytes_represent in
-    match map_addr addr with
-      | Some a  -> Array.blit to_write m.mem a 8
-      | None    -> raise X86lite_segfault
-  in
-  match operand with 
-   Imm i                -> raise @@ Imm_Not_writeable i
-  | Reg r               -> write_reg r value
-  | Ind1 i              -> write_mem (read m i) value
-  | Ind2 r              -> write_mem (read m r) value
-  | Ind3 (i, r)         -> write_mem (Int64.add (read m i) (read m r)) value
-
 exception No_intstr of sbyte
 exception Is_label of lbl
 exception Imm_Not_writeable of imm
+exception Reg_Read_Error of reg
+exception NoIndirect
+
+let read_mem (m:mach) (addr:quad) : sbyte list =
+  match map_addr addr with
+    | Some a  ->  let line = Array.make 8 InsFrag in
+                  let _ = Array.blit m.mem a line 0 8 in
+                  Array.to_list line
+    | None    -> raise X86lite_segfault
+
+let read_reg (m:mach) (reg:reg) : int64 = m.regs.( rind reg ) 
+
+let write_reg (m:mach) (reg:reg) (value: int64): unit = m.regs.( rind reg ) <- value 
+
+let extract_lit : imm -> int64= function
+  | Lit q -> q
+  | Lbl l -> raise @@ Is_label l
+
+let write_mem (m:mach) (addr:quad) (value: int64) : unit =
+  let to_write = Array.of_list @@ sbytes_of_int64 value in
+  match map_addr addr with
+    | Some a  -> Array.blit to_write 0 m.mem a 8
+    | None    -> raise X86lite_segfault
+
+
+(* Returns the address or offset reffered to by the opperand *)
+let read (m:mach) (operand:operand): int64 = 
+  let read_reg (reg:reg) : int64 = read_reg m reg in
+  let read_mem (addr:quad) = read_mem m addr in
+  let mem_to_int64 (addr: quad) = int64_of_sbytes @@ read_mem addr in
+  match operand with 
+    Imm i                 -> extract_lit i
+    | Reg r               -> read_reg r
+    | Ind1 i              -> mem_to_int64 @@ extract_lit i
+    | Ind2 r              -> mem_to_int64 @@ read_reg r
+    | Ind3 (i, r)         -> mem_to_int64 (Int64.add (extract_lit i) @@ read_reg r)
+
+let resolve_ind m :  operand -> int64 = function
+  | Imm _ | Reg _       -> raise NoIndirect
+  | Ind1 i              -> read m @@ Ind1 i
+  | Ind2 r              -> read m @@ Ind2 r
+  | Ind3 (i, r)         -> Int64.add (extract_lit i) (read_reg m r)
+
+let write (m:mach) (operand: operand) (value: int64) =
+  let write_reg (reg:reg) (value:int64) : unit  = write_reg m reg value in
+  let write_mem (addr:quad) (value:int64) : unit  = write_mem m addr value in
+  match operand with 
+  Imm i                 -> raise @@ Imm_Not_writeable i
+  | Reg r               -> write_reg r value
+  | Ind1 i              -> write_mem (resolve_ind m @@ Ind1 i) value
+  | Ind2 r              -> write_mem (resolve_ind m @@ Ind2 r) value
+  | Ind3 (i, r)         -> write_mem (resolve_ind m @@ Ind3 (i, r)) value
 
 (* Simulates one step of the machine:
     - fetch the instruction at %rip
@@ -222,10 +224,18 @@ exception Imm_Not_writeable of imm
     - set the condition flags
 *)
 let step (m:mach) : unit =
-  let {flags = flags; regs = regs; mem = mem} = m in
-  let ins_addr = read Rip in
+  (*prepare helper functions by overriding*)
+  let read_reg (reg:reg) : int64                = read_reg m reg in
+  let write_reg (reg:reg) (value:int64) : unit  = write_reg m reg value in
+  let read_mem (addr:quad) : sbyte list         = read_mem m addr in 
+  let write_mem (addr:quad) (value:int64) : unit  = write_mem m addr value in
+  let read (operand:operand) : int64            = read m operand in
+  let write (operand:operand) (value:int64) : unit = write m operand value in 
 
-  let instruction : ins = read (Imm (Lit ins_addr)) in
+  let {flags = flags; regs = regs; mem = mem} = m in
+  let ins_addr = read_reg Rip in
+
+  let instruction : sbyte = List.hd @@ read_mem ins_addr in
   let (opcode, opndList) = 
     match instruction with
       InsB0 instr     -> instr
@@ -235,17 +245,127 @@ let step (m:mach) : unit =
   let next: unit = regs.(rind Rip) <- Int64.add ins_addr 8L in
 
   let pop (dest:operand) = 
-    let sp_val = read Rsp in
-    let new_sp_val = Int64.add sp 8L in
-    let _ = write (Ind (read dest)) (read sp_val) in
-    let _ = write Rsp new_sp_val
+    let sp_val = read_reg Rsp in
+    let readable_sp_val = Imm (Lit sp_val) in
+    let new_sp_val = Int64.add sp_val 8L in
+    write dest @@ read readable_sp_val;
+    write_reg Rsp new_sp_val
   in
   let push (src:operand) =
-    let new_sp_val = Int64.sub (read Rsp) 8L in
-    let _ = write Rsp new_sp_val in
-    let v = List.hd (sbytes_of_int64 @@ read src) in
-    let _ = write new_sp_val v
+    let new_sp_val = Int64.sub (read_reg Rsp) 8L in
+    let v = read src in
+    write_reg Rsp new_sp_val;
+    write_mem new_sp_val v
   in
+  let setCC { value : int64; overflow : bool }: unit = 
+    failwith ("not implemented")
+  in
+  let jump (operand:operand) : unit = write_reg Rip @@ read operand in
+  let frst_opnd = List.hd opndList in
+  let scnd_opnd = List.nth opndList 1 in
+  match opcode with 
+  | Retq    -> 
+      pop (Reg Rip);
+      next
+  | Pushq   ->  
+      push frst_opnd;
+      next
+  | Popq    ->  
+      pop frst_opnd;
+      next
+  | Jmp     ->  jump frst_opnd
+  | Callq   ->  
+      let dest = read frst_opnd in
+        push (Reg Rip);
+        write_reg Rip dest
+  | Incq    ->  
+      let src_val = read frst_opnd in
+      let incremented: t = succ src_val in
+      write frst_opnd @@ incremented.value;
+      next
+  | Decq    ->  
+      let src_val = read frst_opnd in
+      let decremented: t = pred src_val in
+      write frst_opnd @@ decremented.value;
+      next
+  | Negq    ->  
+      let src_val = read frst_opnd in
+      let negated: t = Int64_overflow.neg src_val in
+      write frst_opnd @@ negated.value;
+      next
+  | Notq    ->  
+      let src_val = read frst_opnd in
+      write frst_opnd @@ Int64.lognot src_val ;
+      next
+  | J cc    ->  
+      if interp_cnd flags cc 
+      then jump frst_opnd
+      else next
+  | Set cc  ->  
+      if interp_cnd flags cc 
+      then write frst_opnd 1L
+      else write frst_opnd 0L;
+      next
+  | Movq  ->
+      write scnd_opnd @@ read frst_opnd;
+      next
+  | Leaq  ->  
+      write scnd_opnd @@ resolve_ind m frst_opnd
+  | Shlq    ->  
+      let src_val = read scnd_opnd in
+      let amnt = Int64.to_int @@ read frst_opnd in
+      write scnd_opnd @@ Int64.shift_left src_val amnt;
+      next
+  | Sarq    ->  
+      let src_val = read scnd_opnd in
+      let amnt = Int64.to_int @@ read frst_opnd in
+      write scnd_opnd @@ Int64.shift_right src_val amnt;
+      next
+  | Shrq    ->  
+      let src_val = read scnd_opnd in
+      let amnt = Int64.to_int @@ read frst_opnd in
+      write scnd_opnd @@ Int64.shift_right_logical src_val amnt;
+      next
+  | Addq  -> 
+      let v1 = read frst_opnd in
+      let v2 = read scnd_opnd in
+      let sum: t = add v1 v2 in
+      write scnd_opnd sum.value
+  | Subq  -> 
+      let v1 = read frst_opnd in
+      let v2 = read scnd_opnd in
+      let diff: t = sub v2 v1 in
+      write scnd_opnd diff.value
+  | Imulq ->
+      let v1 = read frst_opnd in
+      let v2 = read scnd_opnd in
+      let mult: t = mul v1 v2 in
+      write scnd_opnd mult.value
+  | Xorq  -> 
+      let v1 = read frst_opnd in
+      let v2 = read scnd_opnd in
+      let xor = Int64.logxor v1 v2 in
+      write scnd_opnd xor
+  | Orq   -> 
+      let v1 = read frst_opnd in
+      let v2 = read scnd_opnd in
+      let res = Int64.logor v1 v2 in
+      write scnd_opnd res
+  | Andq  -> 
+      let v1 = read frst_opnd in
+      let v2 = read scnd_opnd in
+      let res = Int64.logand v1 v2 in
+      write scnd_opnd res
+  | Cmpq  -> 
+      let v1 = read frst_opnd in
+      let v2 = read scnd_opnd in
+      let diff: t = sub v2 v1 in
+      setCC diff
+
+
+
+
+  (*    
   match opndList with 
     | [] -> (
       match opcode with
@@ -255,15 +375,125 @@ let step (m:mach) : unit =
     )
     | [operand] -> (
       match opcode with 
-        | Pushq -> push operand;
-                  next
-        | Popq -> pop operand
-        | Jmp -> write Rip @@ read operand
-        | Callq -> let _ = push Rip in
-                          write Rip @@ read operand
-        | x    -> raise @@ No_intstr (InsB0 (x, []))
+        | Pushq   ->  
+            push operand;
+            next
+        | Popq    ->  
+            pop operand;
+            next
+        | Jmp     ->  jump
+        | Callq   ->  
+            let dest = read operand in
+              push Rip;
+              write Rip dest
+        | Incq    ->  
+            let src_val = read operand in
+            let incremented: t = inc src_val
+            write operand @@ incremented.value;
+            next
+        | Decq    ->  
+            let src_val = read operand in
+            let decremented: t = pred src_val
+            write operand @@ decremented.value;
+            next
+        | Negq    ->  
+            let src_val = read operand in
+            let negated: t = neg src_val in
+            write operand @@ negated.value;
+            next
+        | Notq    ->  
+            let src_val = read operand in
+            write operand @@ Int64.lognot src_val ;
+            next
+        | Shlq    ->  
+            let src_val = read operand in
+            write operand @@ Int64.shift_left src_val ;
+            next
+        | Sarq    ->  
+            let src_val = read operand in
+            write operand @@ Int64.shift_right src_val ;
+            next
+        | Shrq    ->  
+            let src_val = read operand in
+            write operand @@ Int64.shift_right_logical src_val ;
+            next
+        | J cc    ->  
+            if interp_cnd flags cc 
+            then jump operand
+            else next
+        | Set cc  ->  
+            if interp_cnd flags cc 
+            then write operand 1L
+            else write operand 0L
+            next
+        | x       ->  raise @@ No_intstr (InsB0 (x, []))
     )
-  (*match opcode with
+    | [frst_opnd, scnd_opnd] -> (
+      let both_ind =
+        match frst_opnd with 
+          Ind1 _ -> ( 
+            match scnd_opnd with 
+                  Ind1 _           -> true
+                | Ind3 _ | Ind2 _  -> false
+            )
+        | Ind2 _ -> ( 
+          match scnd_opnd with 
+                Ind2 _           -> true
+              | Ind1 _ | Ind3 _  -> false
+          )
+        | Ind3 _   -> ( 
+          match scnd_opnd with 
+                Ind3 _          -> true
+              | Ind1 _ | Ind2 _ -> false
+        )
+      in
+      if both_ind 
+        then raise @@ No_intstr (InsB0 (x, [])) 
+        else
+          match opcode with 
+            | Movq  ->
+                write scnd_opnd @@ read frst_opnd
+                next
+            | Leaq  ->  
+                write scnd_opnd frst_opnd
+            | Addq  -> 
+                let v1 = read frst_opnd in
+                let v2 = read scnd_opnd in
+                let sum: t = add v1 v2 in
+                write scnd_opnd sum.value
+            | Subq  -> 
+                let v1 = read frst_opnd in
+                let v2 = read scnd_opnd in
+                let diff: t = sub v2 v1 in
+                write scnd_opnd diff.value
+            | Imulq ->
+                let v1 = read frst_opnd in
+                let v2 = read scnd_opnd in
+                let mult: t = mul v1 v2 in
+                write scnd_opnd mult.value
+            | Xorq  -> 
+                let v1 = read frst_opnd in
+                let v2 = read scnd_opnd in
+                let xor = Int64.logxor v1 v2 in
+                write scnd_opnd xor
+            | Orq   -> 
+                let v1 = read frst_opnd in
+                let v2 = read scnd_opnd in
+                let or = Int64.logor v1 v2 in
+                write scnd_opnd or
+            | Andq  -> 
+                let v1 = read frst_opnd in
+                let v2 = read scnd_opnd in
+                let and = Int64.logand v1 v2 in
+                write scnd_opnd and
+            | Cmpq  -> 
+                let v1 = read frst_opnd in
+                let v2 = read scnd_opnd in
+                let diff: t = sub v2 v1 in
+                setCC 
+            | x    -> raise @@ No_intstr (InsB0 (x, []))
+    )
+  match opcode with
     | Movq -> 
         let [ind; dest] = opndList in
         write_mem dest @@ read_mem src
