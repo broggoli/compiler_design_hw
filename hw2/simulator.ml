@@ -60,6 +60,10 @@ type sbyte = InsB0 of ins       (* 1st byte of an instruction *)
            | InsFrag            (* 2nd - 8th bytes of an instruction *)
            | Byte of char       (* non-instruction byte *)
 
+(* types that can be mapped to sbyte representation*)
+type writeable =  Quad of quad
+                | Str of string
+                | Ins of ins
 (* memory maps addresses to symbolic bytes *)
 type mem = sbyte array
 
@@ -159,6 +163,57 @@ let map_addr (addr:quad) : int option =
   then Option.some @@ Int64.to_int @@ Int64.sub addr mem_bot
   else None
 
+
+(* Returns the address or offset reffered to by the opperand *)
+let read (m:mach) (operand:operand): int64 = 
+  let read_reg (reg:reg) : int64 = m.regs.( rind reg ) in
+  let read_mem (m:mach) (addr:quad) : sbyte list =
+    match map_addr addr with
+      | Some a  ->  let line = Array.make 8 InsFrag in
+                    let _ = Array.blit m.mem a line 0 8 in
+                    Array.to_list line
+      | None    -> raise X86lite_segfault
+  in
+
+  let extract_lit (i:imm) l = (match i with
+    | Lit q -> f
+    | Lbl l -> raise @@ Is_label l
+  ) in
+  match operand with 
+   Imm i                -> (match i with 
+                            | Lit q -> q
+                            | Lbl l -> raise @@ Is_label l
+                          )
+  | Reg r               -> read_reg r
+  | Ind1 i              -> extract_lit i @@ int64_of_sbytes @@ read_mem m q
+  | Ind2 r              -> int64_of_sbytes @@ read_mem @@ read_reg r
+  | Ind3 (i, r)         -> extract_lit i @@ int64_of_sbytes @@ read_mem (Int64.add q @@ read_reg r)
+
+let write (m:mach) (operand: operand) (value: writeable) =
+  let write_reg (reg:reg) (value:int64): unit = m.regs.( rind reg ) <- value in
+  let write_mem (m:mach) (addr:quad) (value:writeable) : unit =
+    let sbyte_represent = 
+      match value with 
+        | Quad q  -> sbytes_of_int64 q
+        | Str s   -> sbytes_of_string
+        | Ins i   -> sbytes_of_ins (fst i, i)
+    in
+    let to_write = Array.of_list sbytes_represent in
+    match map_addr addr with
+      | Some a  -> Array.blit to_write m.mem a 8
+      | None    -> raise X86lite_segfault
+  in
+  match operand with 
+   Imm i                -> raise @@ Imm_Not_writeable i
+  | Reg r               -> write_reg r value
+  | Ind1 i              -> write_mem (read m i) value
+  | Ind2 r              -> write_mem (read m r) value
+  | Ind3 (i, r)         -> write_mem (Int64.add (read m i) (read m r)) value
+
+exception No_intstr of sbyte
+exception Is_label of lbl
+exception Imm_Not_writeable of imm
+
 (* Simulates one step of the machine:
     - fetch the instruction at %rip
     - compute the source and/or destination information from the operands
@@ -167,7 +222,69 @@ let map_addr (addr:quad) : int option =
     - set the condition flags
 *)
 let step (m:mach) : unit =
-failwith "step unimplemented"
+  let {flags = flags; regs = regs; mem = mem} = m in
+  let ins_addr = read Rip in
+
+  let instruction : ins = read (Imm (Lit ins_addr)) in
+  let (opcode, opndList) = 
+    match instruction with
+      InsB0 instr     -> instr
+      | x     -> raise @@ No_intstr x
+  in
+
+  let next: unit = regs.(rind Rip) <- Int64.add ins_addr 8L in
+
+  let pop (dest:operand) = 
+    let sp_val = read Rsp in
+    let new_sp_val = Int64.add sp 8L in
+    let _ = write (Ind (read dest)) (read sp_val) in
+    let _ = write Rsp new_sp_val
+  in
+  let push (src:operand) =
+    let new_sp_val = Int64.sub (read Rsp) 8L in
+    let _ = write Rsp new_sp_val in
+    let v = List.hd (sbytes_of_int64 @@ read src) in
+    let _ = write new_sp_val v
+  in
+  match opndList with 
+    | [] -> (
+      match opcode with
+        | Retq -> pop Rip;
+                  next
+        | x    -> raise @@ No_intstr (InsB0 (x, []))
+    )
+    | [operand] -> (
+      match opcode with 
+        | Pushq -> push operand;
+                  next
+        | Popq -> pop operand
+        | Jmp -> write Rip @@ read operand
+        | Callq -> let _ = push Rip in
+                          write Rip @@ read operand
+        | x    -> raise @@ No_intstr (InsB0 (x, []))
+    )
+  (*match opcode with
+    | Movq -> 
+        let [ind; dest] = opndList in
+        write_mem dest @@ read_mem src
+        next
+    | Leaq -> 
+        let [ind; dest] = opndList in
+        let addr = dest in
+        write_mem dest @@ addr
+
+    | Incq | Decq | Negq | Notq ->
+    failwith ("Incq | Decq | Negq | Notq not implemented")
+    | Addq | Subq | Imulq | Xorq | Orq | Andq ->
+    failwith ("Addq | Subq | Imulq | Xorq | Orq | Andq not implemented")
+    | Shlq | Sarq | Shrq  ->
+    failwith ("Shlq | Sarq | Shrq not implemented")
+    | Jmp -> failwith ("Jmp not implemented")
+    | J cc ->failwith (" J not implemented")
+    | Cmpq ->failwith (" Cmpq not implemented")
+    | Set cc -> failwith (" Set not implemented")
+    | Callq | Retq -> 
+    failwith ("Callq | Retq not implemented")*)
 
 (* Runs the machine until the rip register reaches a designated
    memory address. Returns the contents of %rax when the 
