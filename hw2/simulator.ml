@@ -6,7 +6,6 @@
 *)
 
 open X86
-open Int64_overflow
 (* simulator machine state -------------------------------------------------- *)
 
 let mem_bot = 0x400000L          (* lowest valid address *)
@@ -257,8 +256,7 @@ let step (m:mach) : unit =
     write_reg Rsp new_sp_val;
     write_mem new_sp_val v
   in
-  let setCC { value : int64; overflow : bool }: unit = 
-    failwith ("not implemented")
+  let setCC (fo':bool) (fs':bool) (fz':bool) : unit = flags.fo <- fo'; flags.fs <- fs'; flags.fz <- fz'
   in
   let jump (operand:operand) : unit = write_reg Rip @@ read operand in
   let frst_opnd = List.hd opndList in
@@ -277,20 +275,20 @@ let step (m:mach) : unit =
   | Callq   ->  
       let dest = read frst_opnd in
         push (Reg Rip);
-        write_reg Rip dest
+        write_reg Rip dest;
   | Incq    ->  
       let src_val = read frst_opnd in
-      let incremented: t = succ src_val in
+      let incremented: Int64_overflow.t = Int64_overflow.succ src_val in
       write frst_opnd @@ incremented.value;
       next
   | Decq    ->  
       let src_val = read frst_opnd in
-      let decremented: t = pred src_val in
+      let decremented: Int64_overflow.t = Int64_overflow.pred src_val in
       write frst_opnd @@ decremented.value;
       next
   | Negq    ->  
       let src_val = read frst_opnd in
-      let negated: t = Int64_overflow.neg src_val in
+      let negated: Int64_overflow.t = Int64_overflow.neg src_val in
       write frst_opnd @@ negated.value;
       next
   | Notq    ->  
@@ -314,207 +312,84 @@ let step (m:mach) : unit =
   | Shlq    ->  
       let src_val = read scnd_opnd in
       let amnt = Int64.to_int @@ read frst_opnd in
-      write scnd_opnd @@ Int64.shift_left src_val amnt;
+      let res = Int64.shift_left src_val amnt in
+      write scnd_opnd res;
+      if amnt > 0 then 
+        if amnt = 1 
+          then  let x = Int64.shift_left src_val 1 in 
+                let y = Int64.logxor res x in
+                flags.fo <- (y < 0L) 
+          else  flags.fs <- (res < 0L); 
+                flags.fz <- 0L = res;
       next
   | Sarq    ->  
       let src_val = read scnd_opnd in
       let amnt = Int64.to_int @@ read frst_opnd in
-      write scnd_opnd @@ Int64.shift_right src_val amnt;
+      let res = Int64.shift_right src_val amnt in
+      write scnd_opnd res;
+      if amnt > 0 then 
+        if amnt = 1 
+          then  flags.fo <- true 
+          else  flags.fs <- (res < 0L); 
+                flags.fz <- 0L = res;
       next
   | Shrq    ->  
       let src_val = read scnd_opnd in
       let amnt = Int64.to_int @@ read frst_opnd in
-      write scnd_opnd @@ Int64.shift_right_logical src_val amnt;
+      let res = Int64.shift_right_logical src_val amnt in
+      write scnd_opnd res;
+      if amnt = 1     (*OF is set to the most-significant bit of the original operand if the shift amount is 1*) 
+        then  flags.fo <- (src_val < 0L) 
+        else  flags.fs <- (res < 0L); 
+              flags.fz <- 0L = res;
       next
   | Addq  -> 
       let v1 = read frst_opnd in
       let v2 = read scnd_opnd in
-      let sum: t = add v1 v2 in
-      write scnd_opnd sum.value
+      let res: Int64_overflow.t = Int64_overflow.add v1 v2 in
+      write scnd_opnd res.value;
+      setCC res.overflow (res.value < 0L) (0L = res.value);
+      next
   | Subq  -> 
       let v1 = read frst_opnd in
       let v2 = read scnd_opnd in
-      let diff: t = sub v2 v1 in
-      write scnd_opnd diff.value
+      let res: Int64_overflow.t = Int64_overflow.sub v2 v1 in
+      write scnd_opnd res.value;
+      setCC res.overflow (res.value < 0L) (0L = res.value);
+      next
   | Imulq ->
       let v1 = read frst_opnd in
       let v2 = read scnd_opnd in
-      let mult: t = mul v1 v2 in
-      write scnd_opnd mult.value
+      let res: Int64_overflow.t = Int64_overflow.mul v1 v2 in
+      setCC res.overflow (res.value < 0L) (0L = res.value);    (* zero and sign flag undefined*)
+      next
   | Xorq  -> 
       let v1 = read frst_opnd in
       let v2 = read scnd_opnd in
-      let xor = Int64.logxor v1 v2 in
-      write scnd_opnd xor
+      let res = Int64.logxor v1 v2 in
+      write scnd_opnd res;
+      setCC false (res < 0L) (0L = res);
+      next
   | Orq   -> 
       let v1 = read frst_opnd in
       let v2 = read scnd_opnd in
       let res = Int64.logor v1 v2 in
-      write scnd_opnd res
+      write scnd_opnd res;
+      setCC false (res < 0L) (0L = res);
+      next
   | Andq  -> 
       let v1 = read frst_opnd in
       let v2 = read scnd_opnd in
       let res = Int64.logand v1 v2 in
-      write scnd_opnd res
+      write scnd_opnd res;
+      setCC false (res < 0L) (0L = res);
+      next
   | Cmpq  -> 
       let v1 = read frst_opnd in
       let v2 = read scnd_opnd in
-      let diff: t = sub v2 v1 in
-      setCC diff
-
-
-
-
-  (*    
-  match opndList with 
-    | [] -> (
-      match opcode with
-        | Retq -> pop Rip;
-                  next
-        | x    -> raise @@ No_intstr (InsB0 (x, []))
-    )
-    | [operand] -> (
-      match opcode with 
-        | Pushq   ->  
-            push operand;
-            next
-        | Popq    ->  
-            pop operand;
-            next
-        | Jmp     ->  jump
-        | Callq   ->  
-            let dest = read operand in
-              push Rip;
-              write Rip dest
-        | Incq    ->  
-            let src_val = read operand in
-            let incremented: t = inc src_val
-            write operand @@ incremented.value;
-            next
-        | Decq    ->  
-            let src_val = read operand in
-            let decremented: t = pred src_val
-            write operand @@ decremented.value;
-            next
-        | Negq    ->  
-            let src_val = read operand in
-            let negated: t = neg src_val in
-            write operand @@ negated.value;
-            next
-        | Notq    ->  
-            let src_val = read operand in
-            write operand @@ Int64.lognot src_val ;
-            next
-        | Shlq    ->  
-            let src_val = read operand in
-            write operand @@ Int64.shift_left src_val ;
-            next
-        | Sarq    ->  
-            let src_val = read operand in
-            write operand @@ Int64.shift_right src_val ;
-            next
-        | Shrq    ->  
-            let src_val = read operand in
-            write operand @@ Int64.shift_right_logical src_val ;
-            next
-        | J cc    ->  
-            if interp_cnd flags cc 
-            then jump operand
-            else next
-        | Set cc  ->  
-            if interp_cnd flags cc 
-            then write operand 1L
-            else write operand 0L
-            next
-        | x       ->  raise @@ No_intstr (InsB0 (x, []))
-    )
-    | [frst_opnd, scnd_opnd] -> (
-      let both_ind =
-        match frst_opnd with 
-          Ind1 _ -> ( 
-            match scnd_opnd with 
-                  Ind1 _           -> true
-                | Ind3 _ | Ind2 _  -> false
-            )
-        | Ind2 _ -> ( 
-          match scnd_opnd with 
-                Ind2 _           -> true
-              | Ind1 _ | Ind3 _  -> false
-          )
-        | Ind3 _   -> ( 
-          match scnd_opnd with 
-                Ind3 _          -> true
-              | Ind1 _ | Ind2 _ -> false
-        )
-      in
-      if both_ind 
-        then raise @@ No_intstr (InsB0 (x, [])) 
-        else
-          match opcode with 
-            | Movq  ->
-                write scnd_opnd @@ read frst_opnd
-                next
-            | Leaq  ->  
-                write scnd_opnd frst_opnd
-            | Addq  -> 
-                let v1 = read frst_opnd in
-                let v2 = read scnd_opnd in
-                let sum: t = add v1 v2 in
-                write scnd_opnd sum.value
-            | Subq  -> 
-                let v1 = read frst_opnd in
-                let v2 = read scnd_opnd in
-                let diff: t = sub v2 v1 in
-                write scnd_opnd diff.value
-            | Imulq ->
-                let v1 = read frst_opnd in
-                let v2 = read scnd_opnd in
-                let mult: t = mul v1 v2 in
-                write scnd_opnd mult.value
-            | Xorq  -> 
-                let v1 = read frst_opnd in
-                let v2 = read scnd_opnd in
-                let xor = Int64.logxor v1 v2 in
-                write scnd_opnd xor
-            | Orq   -> 
-                let v1 = read frst_opnd in
-                let v2 = read scnd_opnd in
-                let or = Int64.logor v1 v2 in
-                write scnd_opnd or
-            | Andq  -> 
-                let v1 = read frst_opnd in
-                let v2 = read scnd_opnd in
-                let and = Int64.logand v1 v2 in
-                write scnd_opnd and
-            | Cmpq  -> 
-                let v1 = read frst_opnd in
-                let v2 = read scnd_opnd in
-                let diff: t = sub v2 v1 in
-                setCC 
-            | x    -> raise @@ No_intstr (InsB0 (x, []))
-    )
-  match opcode with
-    | Movq -> 
-        let [ind; dest] = opndList in
-        write_mem dest @@ read_mem src
-        next
-    | Leaq -> 
-        let [ind; dest] = opndList in
-        let addr = dest in
-        write_mem dest @@ addr
-
-    | Incq | Decq | Negq | Notq ->
-    failwith ("Incq | Decq | Negq | Notq not implemented")
-    | Addq | Subq | Imulq | Xorq | Orq | Andq ->
-    failwith ("Addq | Subq | Imulq | Xorq | Orq | Andq not implemented")
-    | Shlq | Sarq | Shrq  ->
-    failwith ("Shlq | Sarq | Shrq not implemented")
-    | Jmp -> failwith ("Jmp not implemented")
-    | J cc ->failwith (" J not implemented")
-    | Cmpq ->failwith (" Cmpq not implemented")
-    | Set cc -> failwith (" Set not implemented")
-    | Callq | Retq -> 
-    failwith ("Callq | Retq not implemented")*)
+      let diff: Int64_overflow.t = Int64_overflow.sub v2 v1 in
+      setCC (diff.overflow) (diff.value < 0L) (0L = diff.value);
+      next
 
 (* Runs the machine until the rip register reaches a designated
    memory address. Returns the contents of %rax when the 
