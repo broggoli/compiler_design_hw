@@ -426,6 +426,8 @@ exception Undefined_sym of lbl
 (* Assemble should raise this when a label is defined more than once *)
 exception Redefined_sym of lbl
 
+exception Cannot_Serialize
+
 (* Convert an X86 program into an object file:
    [x] separate the text and data segments
    [x] compute the size of each segment
@@ -496,10 +498,12 @@ let find_lbl (assoc_lbl_list: (lbl * line) list) (lbl_to_find:lbl): line =
 let rec serialize_text : prog -> ins list = function
   | [] -> []
   | {asm = Text ins_list}::el -> ins_list @ serialize_text el
+  | {asm = Data data_list}::el -> raise Cannot_Serialize
 
 let rec serialize_data : prog -> data list = function
   | [] -> []
-  | {asm = Data data_list}::el -> data_list @ serialize_data el
+  | {asm = Data data_list}::el  -> data_list @ serialize_data el
+  | {asm = Text ins_list}::el   -> raise Cannot_Serialize
 
 (* not needed?
 let rec size_of_prog : prog -> line = function

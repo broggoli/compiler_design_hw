@@ -6,5 +6,5 @@ Part 1:
 [] only allow one indirect mem access
 
 Part 2:
-[] all
+[] find duplicate lables
 
