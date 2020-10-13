@@ -6,6 +6,8 @@
 *)
 
 open X86
+open Int64_overflow
+
 (* simulator machine state -------------------------------------------------- *)
 
 let mem_bot = 0x400000L          (* lowest valid address *)
@@ -172,7 +174,8 @@ let read_mem (m:mach) (addr:quad) : sbyte list =
                   Array.to_list line
     | None    -> raise X86lite_segfault
 
-let read_reg (m:mach) (reg:reg) : int64 = m.regs.( rind reg ) 
+let read_reg (m:mach) (reg:reg) : int64 = 
+  if !debug_simulator then print_endline @@ "reading from " ^string_of_reg reg^ " -> " ^ Int64.to_string m.regs.( rind reg ); m.regs.( rind reg )
 
 let write_reg (m:mach) (reg:reg) (value: int64): unit = m.regs.( rind reg ) <- value 
 
@@ -240,14 +243,13 @@ let step (m:mach) : unit =
       InsB0 instr     -> instr
       | x     -> raise @@ No_intstr x
   in
-
+  if !debug_simulator then print_endline @@ string_of_ins (opcode, opndList);
   let next: unit = regs.(rind Rip) <- Int64.add ins_addr 8L in
 
   let pop (dest:operand) = 
     let sp_val = read_reg Rsp in
-    let readable_sp_val = Imm (Lit sp_val) in
     let new_sp_val = Int64.add sp_val 8L in
-    write dest @@ read readable_sp_val;
+    write dest @@ read (Ind2 Rsp);
     write_reg Rsp new_sp_val
   in
   let push (src:operand) =
@@ -256,11 +258,15 @@ let step (m:mach) : unit =
     write_reg Rsp new_sp_val;
     write_mem new_sp_val v
   in
-  let setCC (fo':bool) (fs':bool) (fz':bool) : unit = flags.fo <- fo'; flags.fs <- fs'; flags.fz <- fz'
-  in
+  let setCC (fo':bool) (fs':bool) (fz':bool) : unit = flags.fo <- fo'; flags.fs <- fs'; flags.fz <- fz' in
   let jump (operand:operand) : unit = write_reg Rip @@ read operand in
-  let frst_opnd = List.hd opndList in
-  let scnd_opnd = List.nth opndList 1 in
+  
+  (* A weird hack to get around the opndList not always having two elements*)
+  let frst_opnd : operand = if List.length opndList > 0 then List.nth opndList 0 else Reg Rsp in
+  let scnd_opnd : operand = if List.length opndList > 1 then List.nth opndList 1 else Reg Rsp in
+  
+  
+  if !debug_simulator then print_endline @@ "frst_opnd: " ^string_of_operand frst_opnd ^ "; scnd_opnd: " ^ string_of_operand scnd_opnd;
   match opcode with 
   | Retq    -> 
       pop (Reg Rip);
@@ -270,6 +276,7 @@ let step (m:mach) : unit =
       next
   | Popq    ->  
       pop frst_opnd;
+      if !debug_simulator then print_endline @@ "sp_after_pop: " ^ Int64.to_string @@ read (Reg Rsp);
       next
   | Jmp     ->  jump frst_opnd
   | Callq   ->  
@@ -278,18 +285,21 @@ let step (m:mach) : unit =
         write_reg Rip dest;
   | Incq    ->  
       let src_val = read frst_opnd in
-      let incremented: Int64_overflow.t = Int64_overflow.succ src_val in
-      write frst_opnd @@ incremented.value;
+      let res: Int64_overflow.t = Int64_overflow.succ src_val in
+      write frst_opnd res.value;
+      setCC res.overflow (res.value < 0L) (0L = res.value);
       next
   | Decq    ->  
       let src_val = read frst_opnd in
-      let decremented: Int64_overflow.t = Int64_overflow.pred src_val in
-      write frst_opnd @@ decremented.value;
+      let res: Int64_overflow.t = Int64_overflow.pred src_val in
+      write frst_opnd res.value;
+      setCC res.overflow (res.value < 0L) (0L = res.value);
       next
   | Negq    ->  
       let src_val = read frst_opnd in
-      let negated: Int64_overflow.t = Int64_overflow.neg src_val in
-      write frst_opnd @@ negated.value;
+      let res: Int64_overflow.t = Int64_overflow.neg src_val in
+      write frst_opnd res.value; 
+      setCC res.overflow (res.value < 0L) (0L = res.value);
       next
   | Notq    ->  
       let src_val = read frst_opnd in
@@ -306,6 +316,7 @@ let step (m:mach) : unit =
       next
   | Movq  ->
       write scnd_opnd @@ read frst_opnd;
+      if !debug_simulator then print_endline @@ "Moving " ^Int64.to_string (read frst_opnd) ^ " into "^ string_of_operand scnd_opnd;
       next
   | Leaq  ->  
       write scnd_opnd @@ resolve_ind m frst_opnd
@@ -361,6 +372,7 @@ let step (m:mach) : unit =
       let v1 = read frst_opnd in
       let v2 = read scnd_opnd in
       let res: Int64_overflow.t = Int64_overflow.mul v1 v2 in
+      write scnd_opnd res.value;
       setCC res.overflow (res.value < 0L) (0L = res.value);    (* zero and sign flag undefined*)
       next
   | Xorq  -> 
