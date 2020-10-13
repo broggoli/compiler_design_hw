@@ -573,7 +573,7 @@ let load {entry; text_pos; data_pos; text_seg; data_seg} : mach =
   regs.(rind Rip) <- entry;
   regs.(rind Rsp) <- highestMemLoc;
   (* Write the exit sentinel byte*)
-  (* Array.blit (Array.of_list @@ sbytes_of_int64 exit_addr) 0 mem (Int64.to_int highestMemLoc) 8;*)
+  Array.blit (Array.of_list @@ sbytes_of_int64 exit_addr) 0 mem (Int64.to_int @@ Int64.sub highestMemLoc mem_bot) 8;
   (* Initialize the memory correctly*)
   (* Array.blit (Array.of_list bs) 0 mem 0 (List.length bs);*)
   { flags = flags;
