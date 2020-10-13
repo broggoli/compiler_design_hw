@@ -483,6 +483,14 @@ let lbl_line_mapping l =
     in
   List.fold_left f [] l
 *)
+
+let rec check_duplicates = function
+  | [] -> ()
+  | (test_lbl, _)::tl -> 
+    if   List.exists (fun (lbl, _) -> lbl = test_lbl) tl
+    then raise @@ Redefined_sym test_lbl
+    else check_duplicates tl
+
 (* return a mapping from label to code position *)
 let get_pos_of_lbl_map (assoc_lbl: (lbl * line) list): (lbl -> line) = function
   (* with Map for efficiency and better code? e.g. with module StrMap = Map.Make(String) *)
@@ -533,7 +541,7 @@ let assemble (p:prog) : exec =
   let text_pos = mem_bot in
   let data_pos = Int64.add mem_bot (Int64.of_int (text_block_size text_ser)) in
   let assoc_lbl = lbl_line_mapping (text_prog @ data_prog) in
-  let pos_of_lbl = find_lbl assoc_lbl in
+  check_duplicates assoc_lbl; let pos_of_lbl = find_lbl assoc_lbl in
   let addr_of_lbl (l:lbl) : quad = Int64.add text_pos (Int64.of_int (pos_of_lbl l)) in
   let text_seg = List.concat @@ List.map (fun x -> sbytes_of_ins (resolve_lbl_ins addr_of_lbl x)) text_ser in
   let data_seg = List.concat @@ List.map (fun x -> sbytes_of_data (resolve_lbl_data addr_of_lbl x)) data_ser in
@@ -544,7 +552,6 @@ let assemble (p:prog) : exec =
     text_seg = text_seg;
     data_seg = data_seg
   }
-  (* check redefined *)
 
 (* Convert an object file into an executable machine state. 
     [x] allocate the mem array
