@@ -427,14 +427,14 @@ exception Undefined_sym of lbl
 exception Redefined_sym of lbl
 
 (* Convert an X86 program into an object file:
-   - separate the text and data segments
-   - compute the size of each segment
+   [x] separate the text and data segments
+   [x] compute the size of each segment
       Note: the size of an Asciz string section is (1 + the string length)
             due to the null terminator
-   - resolve the labels to concrete addresses and 'patch' the instructions to 
+   [] resolve the labels to concrete addresses and 'patch' the instructions to 
      replace Lbl values with the corresponding Imm values.
-   - the text segment starts at the lowest address
-   - the data segment starts after the text segment
+   [] the text segment starts at the lowest address
+   [] the data segment starts after the text segment
   HINT: List.fold_left and List.fold_right are your friends.
  *)
 
@@ -461,16 +461,37 @@ let block_size : asm -> line = function
   | Data dl -> data_block_size dl
 
 (* return an association list of (lbl, lbl's corresponding position) *)
-let rec find_lbl (off:line): prog -> (lbl * line) list = function
-  | [] -> []
-  | {lbl = lbl; asm = asm}::el -> let off' =  off + block_size asm in (lbl, off)::(find_lbl off' el)
+let lbl_line_mapping : prog -> (lbl * line) list = 
+  let rec aux off = function
+    | [] -> []
+    | {lbl = lbl; asm = asm}::el -> let off' =  off + block_size asm in (lbl, off)::(aux off' el)
+  in
+  aux 0
 
-
+(* foldl implementation of find_lbl *)
+(*
+let lbl_line_mapping l = 
+  let f (b :(lbl * line) list) { lbl = lbl; asm = asm }= 
+    let off = match b with
+        | []              -> 0
+        | (_, line) :: b  -> line        
+      in 
+      let off' =  off + block_size asm in 
+      (lbl, off')::b
+    in
+  List.fold_left f [] l
+*)
 (* return a mapping from label to code position *)
 let get_pos_of_lbl_map (assoc_lbl: (lbl * line) list): (lbl -> line) = function
   (* with Map for efficiency and better code? e.g. with module StrMap = Map.Make(String) *)
   lbl -> let (_, pos) = List.find (fun (key, _) -> key = lbl) assoc_lbl in pos
-  
+
+let find_lbl (assoc_lbl_list: (lbl * line) list) (lbl_to_find:lbl): line = 
+  let rec aux = function
+    | []              -> raise @@ Undefined_sym lbl_to_find
+    | (lbl, line)::xs -> if lbl_to_find = lbl then line else aux xs
+  in 
+  aux assoc_lbl_list 
 
 let rec serialize_text : prog -> ins list = function
   | [] -> []
@@ -507,13 +528,18 @@ let assemble (p:prog) : exec =
   let text_ser, data_ser = serialize_text text_prog, serialize_data data_prog in
   let text_pos = mem_bot in
   let data_pos = Int64.add mem_bot (Int64.of_int (text_block_size text_ser)) in
-  let assoc_lbl = find_lbl 0 (text_prog @ data_prog) in
-  let pos_of_lbl = get_pos_of_lbl_map assoc_lbl in
+  let assoc_lbl = lbl_line_mapping (text_prog @ data_prog) in
+  let pos_of_lbl = find_lbl assoc_lbl in
   let addr_of_lbl (l:lbl) : quad = Int64.add text_pos (Int64.of_int (pos_of_lbl l)) in
   let text_seg = List.concat @@ List.map (fun x -> sbytes_of_ins (resolve_lbl_ins addr_of_lbl x)) text_ser in
   let data_seg = List.concat @@ List.map (fun x -> sbytes_of_data (resolve_lbl_data addr_of_lbl x)) data_ser in
   let entry = addr_of_lbl "main" in
-  {entry = entry; text_pos = text_pos; data_pos = data_pos; text_seg = text_seg; data_seg = data_seg}
+  { entry = entry; 
+    text_pos = text_pos;
+    data_pos = data_pos;
+    text_seg = text_seg;
+    data_seg = data_seg
+  }
   (* check redefined *)
 
 (* Convert an object file into an executable machine state. 
@@ -537,6 +563,7 @@ let load {entry; text_pos; data_pos; text_seg; data_seg} : mach =
   regs.(rind Rsp) <- highestMemLoc;
   (* Write the exit sentinel byte*)
   (* Array.blit (Array.of_list @@ sbytes_of_int64 exit_addr) 0 mem (Int64.to_int highestMemLoc) 8;*)
+  (* Initialize the memory correctly*)
   (* Array.blit (Array.of_list bs) 0 mem 0 (List.length bs);*)
   { flags = flags;
     regs = regs;
