@@ -431,17 +431,100 @@ exception Redefined_sym of lbl
    - compute the size of each segment
       Note: the size of an Asciz string section is (1 + the string length)
             due to the null terminator
-
    - resolve the labels to concrete addresses and 'patch' the instructions to 
      replace Lbl values with the corresponding Imm values.
-
    - the text segment starts at the lowest address
    - the data segment starts after the text segment
-
   HINT: List.fold_left and List.fold_right are your friends.
  *)
+
+(* separates the program into text and data parts*)
+let separate (p:prog) : (prog * prog) = 
+    let partition_function = function 
+      | {asm = Text _} -> true 
+      | {asm = Data _} -> false
+    in  List.partition partition_function p
+
+type line = int
+
+(* calculates the size of one data segment *)
+let rec data_block_size : (data list) -> line = let quad_len = 1 in function
+  | []              -> 0
+  | (Quad _)::dl    -> data_block_size dl + quad_len
+  | (Asciz str)::dl -> data_block_size dl + (1 + String.length str)
+
+(* calculates the size of one text segment *)
+let text_block_size (tl: ins list) : line = let ins_len = 8 in (List.length tl) * ins_len
+
+let block_size : asm -> line = function
+  | Text tl -> text_block_size tl
+  | Data dl -> data_block_size dl
+
+(* return an association list of (lbl, lbl's corresponding position) *)
+let rec find_lbl (off:line): prog -> (lbl * line) list = function
+  | [] -> []
+  | {lbl = lbl; asm = asm}::el -> let off' =  off + block_size asm in (lbl, off)::(find_lbl off' el)
+
+
+(* return a mapping from label to code position *)
+let get_pos_of_lbl_map (assoc_lbl: (lbl * line) list): (lbl -> line) = function
+  (* with Map for efficiency and better code? e.g. with module StrMap = Map.Make(String) *)
+  lbl -> let (_, pos) = List.find (fun (key, _) -> key = lbl) assoc_lbl in pos
+  
+
+let rec serialize_text : prog -> ins list = function
+  | [] -> []
+  | {asm = Text ins_list}::el -> ins_list @ serialize_text el
+
+let rec serialize_data : prog -> data list = function
+  | [] -> []
+  | {asm = Data data_list}::el -> data_list @ serialize_data el
+
+(* not needed?
+let rec size_of_prog : prog -> line = function
+  | [] -> 0
+  | ({asm = asm}::el) -> block_size asm + size_of_prog el
+*)
+
+let resolve_lbl_ins (addr_of_lbl: lbl -> quad) (op, args : ins) : ins =
+  let resolve_lbl : operand -> operand = function
+    | Imm (Lbl l)     -> Imm (Lit (addr_of_lbl l))
+    | Ind1 (Lbl l)    -> Ind1 (Lit (addr_of_lbl l))
+    | Ind3 (Lbl l, r) -> Ind3 (Lit (addr_of_lbl l), r)
+    | o               -> o 
+  in
+  (op, List.map resolve_lbl args)
+
+let resolve_lbl_data (addr_of_lbl: lbl -> quad) : data -> data = function
+  | Quad (Lbl l) -> Quad (Lit (addr_of_lbl l))
+  | o -> o
+
+(*
+to sbytes
+*)
 let assemble (p:prog) : exec =
-failwith "assemble unimplemented"
+  let text_prog, data_prog = separate p
+  in
+  let text_ser, data_ser = serialize_text text_prog, serialize_data data_prog
+  in
+  let text_pos = mem_bot
+  in
+  let data_pos = Int64.add mem_bot (Int64.of_int (text_block_size text_ser))
+  in
+  let assoc_lbl = find_lbl 0 (text_prog @ data_prog)
+  in
+  let pos_of_lbl = get_pos_of_lbl_map assoc_lbl
+  in
+  let addr_of_lbl (l:lbl) : quad = Int64.add text_pos (Int64.of_int (pos_of_lbl l))
+  in
+  let text_seg = List.concat @@ List.map (fun x -> sbytes_of_ins (resolve_lbl_ins addr_of_lbl x)) text_ser
+  in
+  let data_seg = List.concat @@ List.map (fun x -> sbytes_of_data (resolve_lbl_data addr_of_lbl x)) data_ser
+  in
+  let entry = addr_of_lbl "main"
+  in
+  {entry = entry; text_pos = text_pos; data_pos = data_pos; text_seg = text_seg; data_seg = data_seg}
+  (* check redefined *)
 
 (* Convert an object file into an executable machine state. 
     - allocate the mem array
@@ -452,7 +535,6 @@ failwith "assemble unimplemented"
       - initializes rsp to the last word in memory 
       - the other registers are initialized to 0
     - the condition code flags start as 'false'
-
   Hint: The Array.make, Array.blit, and Array.of_list library functions 
   may be of use.
 *)
