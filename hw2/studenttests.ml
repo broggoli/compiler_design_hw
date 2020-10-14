@@ -189,14 +189,14 @@ let factorial_rec n =
   ]
 ]
 
-let call_func a b = 
+let add a b = 
 [ text "add"
   [ Movq, [~$0; ~%Rax]
   ; Addq, [~%R08; ~%Rax]
   ; Addq, [~%R09; ~%Rax]
   ; Retq, []
   ]
-; text "main"
+; gtext "main"
   [ Movq,  [~$a; ~%R08]
   ; Movq,  [~$b; ~%R09]
   ; Callq, [~$$"add"]
@@ -204,6 +204,36 @@ let call_func a b =
   ]
 ]
 
+let fib n =
+[ text "fib"
+  [ Cmpq,  [~$1; ~%Rdi]
+  ; J Le,  [~$$"base"]
+
+  ; Subq,  [~$16; ~%Rsp]
+  
+  ; Movq,  [~%Rdi; Ind2 Rsp]
+  ; Decq,  [~%Rdi]
+  ; Callq, [~$$"fib"]
+  ; Movq,  [~%Rax; Ind3 (Lit 1L, Rsp)]
+  ; Movq,  [Ind2 Rsp; ~%Rdi]
+  
+  ; Decq,  [~%Rdi]
+  ; Callq, [~$$"fib"]
+  ; Addq,  [Ind3 (Lit 1L, Rsp); ~%Rax]
+
+  ; Addq,  [~$16; ~%Rsp]
+  ; Retq,  []
+  ]
+; text "base"
+  [ Movq, [~%Rdi; ~%Rax]
+  ; Retq, []
+  ]
+; text "main"
+  [ Movq,  [~$n; ~%Rdi]
+  ; Callq, [~$$"fib"]
+  ; Retq,  []
+  ]
+]
   
 let bit_manipulation =
   [
@@ -224,7 +254,8 @@ let e2e = [
   ("Hello World", Gradedtests.program_test helloworld 99L);
   ("Factorial Iter", Gradedtests.program_test (factorial_iter 6) 720L);
   ("Factorial Rec", Gradedtests.program_test (factorial_rec 2) 2L);
-  ("Call Test", Gradedtests.program_test (call_func 3 42) 45L);
+  ("Call Test: add", Gradedtests.program_test (add 3 42) 45L);
+  ("Rec Test: fibonacci", Gradedtests.program_test (fib 2) 1L);
 ]
 
 let provided_tests : suite = [ 
