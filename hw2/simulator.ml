@@ -541,8 +541,9 @@ let assemble (p:prog) : exec =
   let text_pos = mem_bot in
   let data_pos = Int64.add mem_bot (Int64.of_int (text_block_size text_ser)) in
   let assoc_lbl = lbl_line_mapping (text_prog @ data_prog) in
-  check_duplicates assoc_lbl; let pos_of_lbl = find_lbl assoc_lbl in
-  let addr_of_lbl (l:lbl) : quad = Int64.add text_pos (Int64.of_int (pos_of_lbl l)) in
+  check_duplicates assoc_lbl; 
+  let lbl_position = find_lbl assoc_lbl in
+  let addr_of_lbl (l:lbl) : quad = Int64.add text_pos (Int64.of_int (lbl_position l)) in
   let text_seg = List.concat @@ List.map (fun x -> sbytes_of_ins (resolve_lbl_ins addr_of_lbl x)) text_ser in
   let data_seg = List.concat @@ List.map (fun x -> sbytes_of_data (resolve_lbl_data addr_of_lbl x)) data_ser in
   let entry = addr_of_lbl "main" in
@@ -565,17 +566,29 @@ let assemble (p:prog) : exec =
   Hint: The Array.make, Array.blit, and Array.of_list library functions 
   may be of use.
 *)
+exception Cannto_Load_This_Addr of quad
+
 let load {entry; text_pos; data_pos; text_seg; data_seg} : mach = 
   let highestMemLoc = Int64.sub mem_top 8L in                     (*TODO calculate highest me*)
   let flags : flags = {fo = false; fs = false; fz = false} in
   let regs : regs = Array.make nregs 0L in
   let mem : mem = (Array.make mem_size (Byte '\x00')) in
+  let text_seg_arr = Array.of_list text_seg in
+  let data_seg_arr = Array.of_list data_seg in
   regs.(rind Rip) <- entry;
   regs.(rind Rsp) <- highestMemLoc;
   (* Write the exit sentinel byte*)
   Array.blit (Array.of_list @@ sbytes_of_int64 exit_addr) 0 mem (Int64.to_int @@ Int64.sub highestMemLoc mem_bot) 8;
   (* Initialize the memory correctly*)
-  (* Array.blit (Array.of_list bs) 0 mem 0 (List.length bs);*)
+  let text_seg_length = List.length text_seg in
+  
+  let map_mem_addr addr = 
+    match map_addr addr with
+      | Some a  -> a
+      | None    -> raise @@ Cannto_Load_This_Addr addr
+  in
+  Array.blit text_seg_arr 0 mem (map_mem_addr text_pos) text_seg_length;
+  Array.blit data_seg_arr 0 mem (map_mem_addr data_pos) (List.length data_seg);
   { flags = flags;
     regs = regs;
     mem = mem
