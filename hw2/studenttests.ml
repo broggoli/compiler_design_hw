@@ -129,6 +129,8 @@ let shr =
   InsFrag;
   ]
 
+(* Example Programs *)
+
 let helloworld = 
 [ text "foo"
   [ Xorq, [~%Rax; ~%Rax]
@@ -146,7 +148,8 @@ let helloworld =
   ]
 ]
 
-let factorial_iter n = [ text "main"
+let factorial_iter n = 
+[ text "main"
         [ Movq,  [~$1; ~%Rax]
         ; Movq,  [~$n; ~%Rdi]
         ]
@@ -161,6 +164,31 @@ let factorial_iter n = [ text "main"
         [ Retq,  [] 
         ]
  ]
+
+let factorial_rec n = 
+[ text "fac"
+  [ Subq,  [~$8; ~%Rsp]
+  ; Cmpq,  [~$1; ~%Rdi]
+  ; J Le,  [~$$"exit"]
+  ; Movq,  [~%Rdi; Ind2 Rsp]
+  ; Decq,  [~%Rdi]
+  ; Callq, [~$$"fac"]
+  ; Imulq, [Ind2 Rsp; ~%Rax]
+  ; Addq,  [~$8; ~%Rsp]
+  ; Retq,  []
+  ]
+; text "exit"
+  [ Movq,  [~$1; ~%Rax]
+  ; Addq,  [~$8; ~%Rsp]
+  ; Retq,  [] 
+  ]
+; gtext "main"
+  [ Movq,  [~$n; ~%Rdi]
+  ; Callq, [~$$"fac"]
+  ; Retq,  []
+  ]
+]
+
 
   
 let bit_manipulation =
@@ -180,9 +208,11 @@ let bit_manipulation =
 
 let e2e = [
   ("Hello World", Gradedtests.program_test helloworld 99L);
+  ("Factorial Iter", Gradedtests.program_test (factorial_iter 6) 720L);
+  ("Factorial Rec", Gradedtests.program_test (factorial_rec 2) 2L);
 ]
 
 let provided_tests : suite = [ 
   Test ("Bit manipulation", bit_manipulation);
-  Test ("End-to-end Hello World", e2e);
+  Test ("End-to-end", e2e);
 ]
