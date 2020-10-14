@@ -189,6 +189,20 @@ let factorial_rec n =
   ]
 ]
 
+let call_func a b = 
+[ text "add"
+  [ Movq, [~$0; ~%Rax]
+  ; Addq, [~%R08; ~%Rax]
+  ; Addq, [~%R09; ~%Rax]
+  ; Retq, []
+  ]
+; text "main"
+  [ Movq,  [~$a; ~%R08]
+  ; Movq,  [~$b; ~%R09]
+  ; Callq, [~$$"add"]
+  ; Retq,  []
+  ]
+]
 
   
 let bit_manipulation =
@@ -210,6 +224,7 @@ let e2e = [
   ("Hello World", Gradedtests.program_test helloworld 99L);
   ("Factorial Iter", Gradedtests.program_test (factorial_iter 6) 720L);
   ("Factorial Rec", Gradedtests.program_test (factorial_rec 2) 2L);
+  ("Call Test", Gradedtests.program_test (call_func 3 42) 45L);
 ]
 
 let provided_tests : suite = [ 
