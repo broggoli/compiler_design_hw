@@ -253,10 +253,14 @@ let stack =
   ]
 ]
 
-let simp_stack = 
+let ind2_test = 
 [ text "main"
-  [ Decq,  [~%Rsp]
+  [ Movq,  [~$4194328; ~%Rdi]
+  ; Movq,  [Ind2 Rdi; ~%Rax]
   ; Retq,  []
+  ]
+; data "num"
+  [ Quad (Lit 99L)
   ]
 ]
 
@@ -282,7 +286,7 @@ let e2e = [
   ("Call Test: add", Gradedtests.program_test (add 3 42) 45L);
   ("Rec Test: fibonacci", Gradedtests.program_test (fib 2) 1L);
   ("Stack Test", Gradedtests.program_test stack 111L);
-  ("Simple Stack Test", Gradedtests.program_test simp_stack 0L);
+  ("Simple Stack Test", Gradedtests.program_test ind2_test 99L);
 ]
 
 let provided_tests : suite = [ 
