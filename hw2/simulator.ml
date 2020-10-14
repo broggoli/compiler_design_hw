@@ -569,26 +569,27 @@ let assemble (p:prog) : exec =
 exception Cannto_Load_This_Addr of quad
 
 let load {entry; text_pos; data_pos; text_seg; data_seg} : mach = 
-  let highestMemLoc = Int64.sub mem_top 8L in                     (*TODO calculate highest me*)
   let flags : flags = {fo = false; fs = false; fz = false} in
+
+  let highestMemLoc = Int64.sub mem_top 8L in
+  
   let regs : regs = Array.make nregs 0L in
-  let mem : mem = (Array.make mem_size (Byte '\x00')) in
-  let text_seg_arr = Array.of_list text_seg in
-  let data_seg_arr = Array.of_list data_seg in
   regs.(rind Rip) <- entry;
   regs.(rind Rsp) <- highestMemLoc;
-  (* Write the exit sentinel byte*)
-  Array.blit (Array.of_list @@ sbytes_of_int64 exit_addr) 0 mem (Int64.to_int @@ Int64.sub highestMemLoc mem_bot) 8;
-  (* Initialize the memory correctly*)
-  let text_seg_length = List.length text_seg in
-  
+
+  let mem : mem = (Array.make mem_size (Byte '\x00')) in
   let map_mem_addr addr = 
     match map_addr addr with
       | Some a  -> a
       | None    -> raise @@ Cannto_Load_This_Addr addr
   in
-  Array.blit text_seg_arr 0 mem (map_mem_addr text_pos) text_seg_length;
-  Array.blit data_seg_arr 0 mem (map_mem_addr data_pos) (List.length data_seg);
+  let write_list_to_mem sb_list pos = 
+    Array.blit (Array.of_list sb_list) 0 mem (map_mem_addr pos) (List.length sb_list)
+  in
+  write_list_to_mem text_seg                    text_pos;      (* Initialize the memory correctly*)
+  write_list_to_mem data_seg                    data_pos;
+  write_list_to_mem (sbytes_of_int64 exit_addr) highestMemLoc; (* Write the exit sentinel byte*)
+  
   { flags = flags;
     regs = regs;
     mem = mem
