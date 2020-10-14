@@ -128,7 +128,40 @@ let shr =
   InsFrag;
   InsFrag;
   ]
-  
+
+let helloworld = 
+[ text "foo"
+  [ Xorq, [~%Rax; ~%Rax]
+  ; Movq, [~$100; ~%Rax]
+  ; Retq, []
+  ]
+; text "main" 
+  [ Xorq, [~%Rax; ~%Rax]
+  ; Movq, [Ind1 (Lbl "baz"); ~%Rax]
+  ; Retq, []
+  ]
+; data "baz" 
+  [ Quad (Lit 99L)
+  ; Asciz "Hello, world!"
+  ]
+]
+
+let factorial_iter n = [ text "main"
+        [ Movq,  [~$1; ~%Rax]
+        ; Movq,  [~$n; ~%Rdi]
+        ]
+ ; text "loop"
+        [ Cmpq,  [~$0; ~%Rdi]
+        ; J Eq,  [~$$"exit"]
+        ; Imulq, [~%Rdi; ~%Rax]
+        ; Decq,  [~%Rdi]
+        ; Jmp,   [~$$"loop"]
+        ]
+ ; text "exit"
+        [ Retq,  [] 
+        ]
+ ]
+
   
 let bit_manipulation =
   [
@@ -145,5 +178,11 @@ let bit_manipulation =
   = -2L) );
   ]
 
-let provided_tests : suite = [ Test ("Bit manipulation", bit_manipulation) ]
+let e2e = [
+  ("Hello World", Gradedtests.program_test helloworld 99L);
+]
 
+let provided_tests : suite = [ 
+  Test ("Bit manipulation", bit_manipulation);
+  Test ("End-to-end Hello World", e2e);
+]
