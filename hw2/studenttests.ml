@@ -234,7 +234,32 @@ let fib n =
   ; Retq,  []
   ]
 ]
+
+let stack = 
+[ text "main"
+  [ Subq,  [~$16; ~%Rsp]
   
+  ; Movq,  [~$42; ~%Rax]
+  ; Movq,  [~%Rax; Ind2 Rsp]
+  ; Decq,  [~%Rax]
+
+  ; Movq,  [~$69; Ind3 (Lit 1L, Rsp)]
+  ; Movq,  [Ind2 Rsp; ~%Rax]
+
+  ; Addq,  [Ind3 (Lit 1L, Rsp); ~%Rax]
+
+  ; Addq,  [~$16; ~%Rsp]
+  ; Retq,  []
+  ]
+]
+
+let simp_stack = 
+[ text "main"
+  [ Decq,  [~%Rsp]
+  ; Retq,  []
+  ]
+]
+
 let bit_manipulation =
   [
   ( "shr",
@@ -256,6 +281,8 @@ let e2e = [
   ("Factorial Rec", Gradedtests.program_test (factorial_rec 2) 2L);
   ("Call Test: add", Gradedtests.program_test (add 3 42) 45L);
   ("Rec Test: fibonacci", Gradedtests.program_test (fib 2) 1L);
+  ("Stack Test", Gradedtests.program_test stack 111L);
+  ("Simple Stack Test", Gradedtests.program_test simp_stack 0L);
 ]
 
 let provided_tests : suite = [ 
