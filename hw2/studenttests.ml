@@ -145,5 +145,11 @@ let bit_manipulation =
   = -2L) );
   ]
 
-let provided_tests : suite = [ Test ("Bit manipulation", bit_manipulation) ]
+let simple_end_to_end = [
+  ("helloworld", Gradedtests.program_test (Gradedtests.helloworld') 99L);
+]
+let provided_tests : suite = [ 
+  Test ("Bit manipulation", bit_manipulation);
+  Test("End-to-end Tests", simple_end_to_end)
+]
 

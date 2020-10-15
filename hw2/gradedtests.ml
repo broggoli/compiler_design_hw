@@ -12,21 +12,38 @@ open Asm
 
 (* Example Programs *)
 
-let helloworld = [ text "foo"
-                            [ Xorq, [~%Rax; ~%Rax]
-                            ; Movq, [~$100; ~%Rax]
+let helloworld' = [ text "foo"
+                            [ Movq, [~%Rdi; ~%Rax]
+                            ; Movq, [~%Rdi; ~%Rbx]
+                            ; Imulq, [~%Rbx; ~%Rax]
                             ; Retq, []
                             ]
                      ; text "main" 
                             [ Xorq, [~%Rax; ~%Rax]
-                            ; Movq, [Ind1 (Lbl "baz"); ~%Rax]
+                            ; Movq, [Ind1 (Lbl "baz"); ~%Rdi]
+                            ; Callq, [Imm (Lbl "foo")]
                             ; Retq, []
                             ]
                      ; data "baz" 
-                            [ Quad (Lit 99L)
+                            [ Quad (Lit 2L)
                             ; Asciz "Hello, world!"
                             ]
                      ]
+let helloworld = [ text "foo"
+                     [ Xorq, [~%Rax; ~%Rax]
+                     ; Movq, [~$100; ~%Rax]
+                     ; Retq, []
+                     ]
+              ; text "main" 
+                     [ Xorq, [~%Rax; ~%Rax]
+                     ; Movq, [Ind1 (Lbl "baz"); ~%Rax]
+                     ; Retq, []
+                     ]
+              ; data "baz" 
+                     [ Quad (Lit 99L)
+                     ; Asciz "Hello, world!"
+                     ]
+              ]
 
 let factorial_iter n = [ text "main"
                                   [ Movq,  [~$1; ~%Rax]

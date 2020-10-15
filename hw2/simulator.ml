@@ -19,7 +19,7 @@ let exit_addr = 0xfdeadL         (* halt when m.regs(%rip) = exit_addr *)
 
 (* Your simulator should raise this exception if it tries to read from or
    store to an address not within the valid address space. *)
-exception X86lite_segfault
+exception X86lite_segfault of quad
 
 (* The simulator memory maps addresses to symbolic bytes.  Symbolic
    bytes are either actual data indicated by the Byte constructor or
@@ -141,7 +141,7 @@ let sbytes_of_data : data -> sbyte list = function
      [if !debug_simulator then print_endline @@ string_of_ins u; ...]
 
 *)
-let debug_simulator = ref false
+let debug_simulator = ref true
 
 (* Interpret a condition code with respect to the given flags. *)
 let interp_cnd {fo; fs; fz} : cnd -> bool = fun x -> 
@@ -168,14 +168,14 @@ exception Reg_Read_Error of reg
 exception NoIndirect
 
 let read_mem (m:mach) (addr:quad) : sbyte list =
+  (*if !debug_simulator then print_endline @@ "Reading mem addr: " ^ Int64.to_string addr;*)
   match map_addr addr with
     | Some a  ->  let line = Array.make 8 InsFrag in
                   let _ = Array.blit m.mem a line 0 8 in
                   Array.to_list line
-    | None    -> raise X86lite_segfault
+    | None    -> raise @@ X86lite_segfault addr
 
-let read_reg (m:mach) (reg:reg) : int64 = 
-  if !debug_simulator then print_endline @@ "reading from " ^string_of_reg reg^ " -> " ^ Int64.to_string m.regs.( rind reg ); m.regs.( rind reg )
+let read_reg (m:mach) (reg:reg) : int64 =  m.regs.( rind reg )
 
 let write_reg (m:mach) (reg:reg) (value: int64): unit = m.regs.( rind reg ) <- value 
 
@@ -185,9 +185,10 @@ let extract_lit : imm -> int64= function
 
 let write_mem (m:mach) (addr:quad) (value: int64) : unit =
   let to_write = Array.of_list @@ sbytes_of_int64 value in
+  if !debug_simulator then print_endline @@ "Writing mem addr: " ^ Int64.to_string addr;
   match map_addr addr with
     | Some a  -> Array.blit to_write 0 m.mem a 8
-    | None    -> raise X86lite_segfault
+    | None    -> raise @@ X86lite_segfault addr
 
 
 (* Returns the address or offset reffered to by the opperand *)
@@ -195,12 +196,15 @@ let read (m:mach) (operand:operand): int64 =
   let read_reg (reg:reg) : int64 = read_reg m reg in
   let read_mem (addr:quad) = read_mem m addr in
   let mem_to_int64 (addr: quad) = int64_of_sbytes @@ read_mem addr in
-  match operand with 
+  let res = match operand with 
     Imm i                 -> extract_lit i
     | Reg r               -> read_reg r
     | Ind1 i              -> mem_to_int64 @@ extract_lit i
     | Ind2 r              -> mem_to_int64 @@ read_reg r
-    | Ind3 (i, r)         -> mem_to_int64 (Int64.add (extract_lit i) @@ read_reg r)
+    | Ind3 (i, r)         -> mem_to_int64 (Int64.add (extract_lit i) @@ read_reg r) 
+  in
+  if !debug_simulator then print_endline @@ "read " ^ Int64.to_string res;
+  res
 
 let resolve_ind m :  operand -> int64 = function
   | Imm _ | Reg _       -> raise NoIndirect
@@ -566,28 +570,29 @@ let assemble (p:prog) : exec =
   Hint: The Array.make, Array.blit, and Array.of_list library functions 
   may be of use.
 *)
-exception Cannto_Load_This_Addr of quad
+exception Cannot_Load_This_Addr of quad
 
 let load {entry; text_pos; data_pos; text_seg; data_seg} : mach = 
-  let highestMemLoc = Int64.sub mem_top 8L in                     (*TODO calculate highest me*)
+  let highestMemLoc = Int64.sub mem_top 8L in
   let flags : flags = {fo = false; fs = false; fz = false} in
   let regs : regs = Array.make nregs 0L in
   let mem : mem = (Array.make mem_size (Byte '\x00')) in
   let text_seg_arr = Array.of_list text_seg in
   let data_seg_arr = Array.of_list data_seg in
-  regs.(rind Rip) <- entry;
-  regs.(rind Rsp) <- highestMemLoc;
-  (* Write the exit sentinel byte*)
-  Array.blit (Array.of_list @@ sbytes_of_int64 exit_addr) 0 mem (Int64.to_int @@ Int64.sub highestMemLoc mem_bot) 8;
-  (* Initialize the memory correctly*)
-  let text_seg_length = List.length text_seg in
-  
+
   let map_mem_addr addr = 
     match map_addr addr with
       | Some a  -> a
-      | None    -> raise @@ Cannto_Load_This_Addr addr
+      | None    -> raise @@ Cannot_Load_This_Addr addr
   in
-  Array.blit text_seg_arr 0 mem (map_mem_addr text_pos) text_seg_length;
+
+  let exit_addr_ser = Array.of_list @@ sbytes_of_int64 exit_addr in
+  regs.(rind Rip) <- entry;
+  regs.(rind Rsp) <- highestMemLoc;
+  (* Write the exit sentinel byte*)
+  Array.blit exit_addr_ser 0 mem (map_mem_addr highestMemLoc) 8;
+  (* Initialize the memory correctly*)
+  Array.blit text_seg_arr 0 mem (map_mem_addr text_pos) (List.length text_seg);
   Array.blit data_seg_arr 0 mem (map_mem_addr data_pos) (List.length data_seg);
   { flags = flags;
     regs = regs;
