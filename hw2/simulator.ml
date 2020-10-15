@@ -141,7 +141,7 @@ let sbytes_of_data : data -> sbyte list = function
      [if !debug_simulator then print_endline @@ string_of_ins u; ...]
 
 *)
-let debug_simulator = ref true
+let debug_simulator = ref false
 
 (* Interpret a condition code with respect to the given flags. *)
 let interp_cnd {fo; fs; fz} : cnd -> bool = fun x -> 
@@ -209,7 +209,7 @@ let read (m:mach) (operand:operand): int64 =
 let resolve_ind m :  operand -> int64 = function
   | Imm _ | Reg _       -> raise NoIndirect
   | Ind1 i              -> read m @@ Ind1 i
-  | Ind2 r              -> read m @@ Ind2 r
+  | Ind2 r              -> read_reg m @@ r
   | Ind3 (i, r)         -> Int64.add (extract_lit i) (read_reg m r)
 
 let write (m:mach) (operand: operand) (value: int64) =
