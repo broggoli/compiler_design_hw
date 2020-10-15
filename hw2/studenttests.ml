@@ -211,15 +211,15 @@ let fib n =
 
   ; Subq,  [~$16; ~%Rsp]
   
-  ; Movq,  [~%Rdi; Ind2 Rsp]
   ; Decq,  [~%Rdi]
+  ; Movq,  [~%Rdi; Ind2 Rsp]
   ; Callq, [~$$"fib"]
-  ; Movq,  [~%Rax; Ind3 (Lit 1L, Rsp)]
+  ; Movq,  [~%Rax; Ind3 (Lit 8L, Rsp)]
   ; Movq,  [Ind2 Rsp; ~%Rdi]
   
   ; Decq,  [~%Rdi]
   ; Callq, [~$$"fib"]
-  ; Addq,  [Ind3 (Lit 1L, Rsp); ~%Rax]
+  ; Addq,  [Ind3 (Lit 8L, Rsp); ~%Rax]
 
   ; Addq,  [~$16; ~%Rsp]
   ; Retq,  []
@@ -243,10 +243,10 @@ let stack =
   ; Movq,  [~%Rax; Ind2 Rsp]
   ; Decq,  [~%Rax]
 
-  ; Movq,  [~$69; Ind3 (Lit 1L, Rsp)]
+  ; Movq,  [~$69; Ind3 (Lit 8L, Rsp)]
   ; Movq,  [Ind2 Rsp; ~%Rax]
 
-  ; Addq,  [Ind3 (Lit 1L, Rsp); ~%Rax]
+  ; Addq,  [Ind3 (Lit 8L, Rsp); ~%Rax]
 
   ; Addq,  [~$16; ~%Rsp]
   ; Retq,  []
@@ -284,12 +284,12 @@ let e2e = [
   ("Factorial Iter", Gradedtests.program_test (factorial_iter 6) 720L);
   ("Factorial Rec", Gradedtests.program_test (factorial_rec 2) 2L);
   ("Call Test: add", Gradedtests.program_test (add 3 42) 45L);
-  ("Rec Test: fibonacci", Gradedtests.program_test (fib 2) 1L);
+  ("Rec Test: fibonacci", Gradedtests.program_test (fib 3) 2L);
   ("Stack Test", Gradedtests.program_test stack 111L);
   ("Simple Stack Test", Gradedtests.program_test ind2_test 99L);
 ]
 let simple_end_to_end = [
-  ("helloworld", Gradedtests.program_test (Gradedtests.helloworld') 99L);
+  ("helloworld", Gradedtests.program_test (Gradedtests.helloworld') 4L);
 ]
 let provided_tests : suite = [ 
   Test ("Bit manipulation", bit_manipulation);
