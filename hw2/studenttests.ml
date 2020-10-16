@@ -2,6 +2,7 @@ open Assert
 open X86
 open Simulator
 open Asm
+open Tests
 
 (* You can use this file for additional test cases to help your *)
 (* implementation.                                              *)
@@ -284,7 +285,7 @@ let e2e = [
   ("Factorial Iter", Gradedtests.program_test (factorial_iter 6) 720L);
   ("Factorial Rec", Gradedtests.program_test (factorial_rec 2) 2L);
   ("Call Test: add", Gradedtests.program_test (add 3 42) 45L);
-  ("Rec Test: fibonacci", Gradedtests.program_test (fib 3) 2L);
+  ("Rec Test: fibonacci", Gradedtests.program_test (fib 30) 832040L);
   ("Stack Test", Gradedtests.program_test stack 111L);
   ("Simple Stack Test", Gradedtests.program_test ind2_test 99L);
 ]
@@ -295,4 +296,4 @@ let provided_tests : suite = [
   Test ("Bit manipulation", bit_manipulation);
   Test("End-to-end Tests", simple_end_to_end);
   Test ("End-to-end", e2e);
-]
+] @ Tests.provided_tests_gregor
