@@ -292,8 +292,8 @@ let e2e = [
 let simple_end_to_end = [
   ("helloworld", Gradedtests.program_test (Gradedtests.helloworld') 4L);
 ]
-let provided_tests : suite = [ 
+let provided_tests : suite = (*[ 
   Test ("Bit manipulation", bit_manipulation);
   Test("End-to-end Tests", simple_end_to_end);
   Test ("End-to-end", e2e);
-] @ Tests.provided_tests_gregor
+] @ *)Tests.provided_tests_gregor

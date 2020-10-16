@@ -329,11 +329,10 @@ let step (m:mach) : unit =
       let amnt = Int64.to_int @@ read frst_opnd in
       let res = Int64.shift_left src_val amnt in
       write scnd_opnd res;
-      if amnt > 0 then 
+      if amnt <> 0 then 
         if amnt = 1 
-          then  let x = Int64.shift_left src_val 1 in 
-                let y = Int64.logxor res x in
-                flags.fo <- (y < 0L) 
+          then  let x = Int64.logxor src_val res in
+                flags.fo <- (x < 0L) 
           else  flags.fs <- (res < 0L); 
                 flags.fz <- 0L = res;
       next
@@ -342,11 +341,12 @@ let step (m:mach) : unit =
       let amnt = Int64.to_int @@ read frst_opnd in
       let res = Int64.shift_right src_val amnt in
       write scnd_opnd res;
-      if amnt > 0 then 
-        if amnt = 1 
-          then  flags.fo <- true 
-          else  flags.fs <- (res < 0L); 
-                flags.fz <- 0L = res;
+      if amnt <> 0 then 
+        if amnt = 1 then  
+          flags.fo <- false 
+        else  
+          flags.fs <- (res < 0L); 
+          flags.fz <- 0L = res;
       next
   | Shrq    ->  
       let src_val = read scnd_opnd in
@@ -377,7 +377,7 @@ let step (m:mach) : unit =
       let v2 = read scnd_opnd in
       let res: Int64_overflow.t = Int64_overflow.mul v1 v2 in
       write scnd_opnd res.value;
-      setCC res.overflow (res.value < 0L) (0L = res.value);    (* zero and sign flag undefined*)
+      flags.fo <- res.overflow;    (* zero and sign flag undefined*)
       next
   | Xorq  -> 
       let v1 = read frst_opnd in
