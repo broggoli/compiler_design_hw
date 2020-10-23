@@ -90,9 +90,13 @@ let lookup m x = List.assoc x m
    destination (usually a register).
 *)
 let compile_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins =
-  function _ -> failwith "compile_operand unimplemented"
-
-
+  let { tdecls = tdecls; layout = layout } = ctxt in
+  function 
+    | Null    -> (Movq, [Imm (Lit 0L); Reg Rax])
+    | Const i -> (Movq, [Imm (Lit i); Reg Rax])
+    (* Not sure whether the gid compilation is correct! *)
+    | Gid gid -> (Leaq, [Ind3 (Lbl (Platform.mangle gid), Rip); Reg Rax])    
+    | Id uid  ->  (Movq, [lookup layout uid; Reg Rax])
 
 (* compiling call  ---------------------------------------------------------- *)
 
@@ -113,7 +117,13 @@ let compile_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins =
    [ NOTE: Don't forget to preserve caller-save registers (only if
    needed). ]
 *)
-
+let compile_call (ctxt:ctxt) (opcode:opcode) = 
+  (*
+    rdi, rsi, rdx, rcx, r09, r08 are the the first 6 arguments
+    other arguments placed on stack
+   cleanup stack saved arguments
+  *)
+  failwith "unimplemented compile_call"
 
 
 
@@ -222,7 +232,30 @@ let mk_lbl (fn:string) (l:string) = fn ^ "." ^ l
    [fn] - the name of the function containing this terminator
 *)
 let compile_terminator (fn:string) (ctxt:ctxt) (t:Ll.terminator) : ins list =
-  failwith "compile_terminator not implemented"
+    match t with 
+    | Ret (_, Some o) -> 
+    | Ret (_, None)   -> [  (*TODO: What happens with void function returns*)
+                          ; Retq, []
+                        ]
+    | Br l            -> [ Jmp [Imm (Lbl mk_lbl fn l)]]
+    | Cbr (o,l1,l2)   -> [ Subq SRC, DEST
+                          J (Eq) [Imm (Lbl mk_lbl fn l)]
+                        ]
+    | subq SRC, DEST
+    
+    | NULL
+    { Null }
+  | i=INT
+    { Const (Int64.of_int i) }
+  | g=GID
+    { Gid g }
+  | u=UID
+    { Id u }
+
+  [ Addq, [space_to_allocate_op; Reg Rsp]
+    ; Popq, [Reg Rbp]
+    ; Retq, []
+  ]
 
 
 (* compiling blocks --------------------------------------------------------- *)
@@ -251,7 +284,14 @@ let compile_lbl_block fn lbl ctxt blk : elem =
    [ NOTE: the first six arguments are numbered 0 .. 5 ]
 *)
 let arg_loc (n : int) : operand =
-failwith "arg_loc not implemented"
+  match n with
+    | 0   -> Reg Rdi
+    | 1   -> Reg Rsi
+    | 2   -> Reg Rdx
+    | 3   -> Reg Rcx
+    | 4   -> Reg R09
+    | 5   -> Reg R08
+    | m   -> Ind3 (Lit (Int64.of_int @@ (n-6)*8), Rbp)
 
 
 (* We suggest that you create a helper function that computes the
@@ -265,6 +305,7 @@ failwith "arg_loc not implemented"
 *)
 let stack_layout (args : uid list) ((block, lbled_blocks):cfg) : layout =
 failwith "stack_layout not implemented"
+
 
 (* The code for the entry-point of a function must do several things:
 
@@ -283,8 +324,31 @@ failwith "stack_layout not implemented"
      to hold all of the local stack slots.
 *)
 let compile_fdecl (tdecls:(tid * ty) list) (name:string) ({ f_ty; f_param; f_cfg }:fdecl) : prog =
-failwith "compile_fdecl unimplemented"
-
+  (*allocate stack space for the entire function*)
+  (*place all arguments in stack*)
+  let n_params = List.length f_param in
+  let param_to_stack_f (i:int) (param:uid) = 
+      let dest = Ind3 (Lit (Int64.of_int @@ i*(-8)), Rbp) in
+      Movq, [arg_loc i; dest] 
+  in
+  let put_args_on_stack = List.mapi param_to_stack_f f_param in
+  let space_to_allocate = n_params in 
+  let space_to_allocate_op = Imm (Lit (Int64.of_int @@ space_to_allocate*8)) in
+  let prologue : ins list = [ 
+                   Pushq, [Reg Rbp] 
+                 ; Movq, [Reg Rsp; Reg Rbp]
+                 ; Subq, [space_to_allocate_op; Reg Rsp]
+                 ] @ put_args_on_stack in
+  
+  let epilogue = [ Addq, [space_to_allocate_op; Reg Rsp]
+                 ; Popq, [Reg Rbp]
+                 ; Retq, []
+                ] in
+  (*compile instructions*)
+  (*put together the pieces of the function*)
+  let funct = [{ lbl = name; global= true; asm = Text prologue }] in
+  (*return the funct*)
+  funct
 
 
 (* compile_gdecl ------------------------------------------------------------ *)
