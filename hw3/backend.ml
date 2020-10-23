@@ -219,7 +219,36 @@ failwith "compile_gep not implemented"
    - Bitcast: does nothing interesting at the assembly level
 *)
 let compile_insn (ctxt:ctxt) ((uid:uid), (i:Ll.insn)) : X86.ins list =
-      failwith "compile_insn not implemented"
+  let { tdecls = tdecls; layout = layout } = ctxt in
+  match i with 
+  | Binop (bop, ty, operand1, operand2) -> (
+      let comile_rd_opnd = compile_read_operand ctxt in
+      let interm_res_reg = Reg R12 in
+      let get_frst_oprnd = comile_rd_opnd (Reg R11) operand1 in
+      let get_scnd_oprnd = comile_rd_opnd interm_res_reg operand2 in
+      let get_opnds = get_frst_oprnd @ get_scnd_oprnd in
+      let get_shft_opnds = get_frst_oprnd @ (comile_rd_opnd (Reg Rcx) operand2) in
+      let res_to_dest = Movq, [interm_res_reg; lookup layout uid] in
+      match bop with
+          | Add   ->  get_opnds @ [ Addq, [Reg R11; interm_res_reg]; res_to_dest]
+          | Sub   ->  get_opnds @ [ Subq, [Reg R12; Reg R11]; Movq, [Reg R11; lookup layout uid]]
+          | Mul   ->  get_opnds @ [ Imulq, [Reg R11; interm_res_reg]; res_to_dest]
+          | Shl   ->  get_shft_opnds @ [ Shlq, [Reg Rcx; Reg R11]; Movq, [Reg R11; lookup layout uid]]
+          | Lshr  ->  get_shft_opnds @ [ Shrq, [Reg Rcx; Reg R11]; Movq, [Reg R11; lookup layout uid]]
+          | Ashr  ->  get_shft_opnds @ [ Sarq, [Reg Rcx; Reg R11]; Movq, [Reg R11; lookup layout uid]]
+          | And   ->  get_opnds @ [ Andq, [Reg R11; interm_res_reg]; res_to_dest]
+          | Or    ->  get_opnds @ [ Orq, [Reg R11; interm_res_reg]; res_to_dest]
+          | Xor   ->  get_opnds @ [ Xorq, [Reg R11; interm_res_reg]; res_to_dest]
+  )
+  (*| Alloca of ty
+  | Load of ty * operand
+  | Store of ty * operand * operand
+  | Icmp of cnd * ty * operand * operand
+  | Call of ty * operand * (ty * operand) list
+  | Bitcast of ty * operand * ty
+  | Gep of ty * operand * operand list 
+  *)
+  | _ -> failwith "compile_insn not implemented"
 
 
 
@@ -246,7 +275,6 @@ let compile_terminator (fn:string) (ctxt:ctxt) (t:Ll.terminator) : ins list =
   let {layout = layout} = ctxt in
   let n_stack_slots = List.length layout in
   let space_to_allocate_op = Imm (Lit (Int64.of_int @@ n_stack_slots*8))  in
-  let compile_ll_op = compile_operand ctxt intermediate_reg in
     match t with
     | Ret (_, Some o) -> (compile_read_operand ctxt (Reg Rax) o ) 
                         @ [ Addq, [space_to_allocate_op; Reg Rsp]
@@ -364,9 +392,7 @@ let args_to_stack f_param : ins list =
 *)
 let compile_fdecl (tdecls:(tid * ty) list) (name:string) ({ f_ty; f_param; f_cfg }:fdecl) : prog =
   (*allocate stack space for the entire function*)
-  (*place all arguments in stack*)
-  let n_params = List.length f_param in
-  
+  (*place all arguments in stack*)  
   let layout = stack_layout f_param f_cfg in
   let put_args_on_stack = args_to_stack f_param in
   let ctxt : ctxt = { tdecls = tdecls; layout = layout} in
@@ -374,14 +400,14 @@ let compile_fdecl (tdecls:(tid * ty) list) (name:string) ({ f_ty; f_param; f_cfg
   let space_to_allocate_op = Imm (Lit (Int64.of_int @@ space_to_allocate*8)) in
   let (entryBlock, blockList) = f_cfg in
   let { insns = entry_ins_list; term = (entryTermLbl, entryTerm) } = entryBlock in 
-
+  
   let entryBlockAsm : asm = 
     let insList = [ Pushq, [Reg Rbp] 
                   ; Movq, [Reg Rsp; Reg Rbp]
                   ; Subq, [space_to_allocate_op; Reg Rsp]
                   ] 
                   @ put_args_on_stack 
-                  (*Missing: entry instruction compilation*)
+                  @ List.concat_map (compile_insn ctxt) entry_ins_list
                   @ compile_terminator name ctxt entryTerm in
     Text insList
   in
