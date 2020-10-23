@@ -88,15 +88,25 @@ let lookup m x = List.assoc x m
    implement the following helper function, whose job is to generate
    the X86 instruction that moves an LLVM operand into a designated
    destination (usually a register).
+
+   Notes:
+   Adds the source location to the operand specified.
 *)
 let compile_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins =
   let { tdecls = tdecls; layout = layout } = ctxt in
   function 
-    | Null    -> (Movq, [Imm (Lit 0L); Reg Rax])
-    | Const i -> (Movq, [Imm (Lit i); Reg Rax])
+    | Null    -> (Movq, [Imm (Lit 0L); dest])
+    | Const i -> (Movq, [Imm (Lit i); dest])
     (* Not sure whether the gid compilation is correct! *)
-    | Gid gid -> (Leaq, [Ind3 (Lbl (Platform.mangle gid), Rip); Reg Rax])    
-    | Id uid  ->  (Movq, [lookup layout uid; Reg Rax])
+    | Gid gid -> (Leaq, [Ind3 (Lbl (Platform.mangle gid), Rip); dest])    
+    | Id uid  ->  (Leaq, [lookup layout uid; dest])
+
+let compile_read_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins list =
+  let { tdecls = tdecls; layout = layout } = ctxt in
+  let intermediate_reg = R12 in
+  fun operand -> match operand with
+    | Null | Const _    -> [compile_operand ctxt dest operand]
+    | Gid o | Id o  -> [compile_operand ctxt (Reg intermediate_reg) operand; Movq, [Ind2 intermediate_reg; dest]]
 
 (* compiling call  ---------------------------------------------------------- *)
 
@@ -232,30 +242,28 @@ let mk_lbl (fn:string) (l:string) = fn ^ "." ^ l
    [fn] - the name of the function containing this terminator
 *)
 let compile_terminator (fn:string) (ctxt:ctxt) (t:Ll.terminator) : ins list =
-    match t with 
-    | Ret (_, Some o) -> 
+  let intermediate_reg = Reg R12 in
+  let {layout = layout} = ctxt in
+  let n_stack_slots = List.length layout in
+  let space_to_allocate_op = Imm (Lit (Int64.of_int @@ n_stack_slots*8))  in
+  let compile_ll_op = compile_operand ctxt intermediate_reg in
+    match t with
+    | Ret (_, Some o) -> (compile_read_operand ctxt (Reg Rax) o ) 
+                        @ [ Addq, [space_to_allocate_op; Reg Rsp]
+                          ; Popq, [Reg Rbp]
+                          ; Retq, []]
     | Ret (_, None)   -> [  (*TODO: What happens with void function returns*)
+                            Addq, [space_to_allocate_op; Reg Rsp]
+                          ; Popq, [Reg Rbp]
                           ; Retq, []
                         ]
-    | Br l            -> [ Jmp [Imm (Lbl mk_lbl fn l)]]
-    | Cbr (o,l1,l2)   -> [ Subq SRC, DEST
-                          J (Eq) [Imm (Lbl mk_lbl fn l)]
-                        ]
-    | subq SRC, DEST
-    
-    | NULL
-    { Null }
-  | i=INT
-    { Const (Int64.of_int i) }
-  | g=GID
-    { Gid g }
-  | u=UID
-    { Id u }
-
-  [ Addq, [space_to_allocate_op; Reg Rsp]
-    ; Popq, [Reg Rbp]
-    ; Retq, []
-  ]
+    | Br l            -> [ Jmp, [Imm (Lbl (mk_lbl fn l))]]
+    | Cbr (o,l1,l2)   -> let comp_bool_op_val = compile_read_operand ctxt intermediate_reg o in
+                          comp_bool_op_val @
+                          [ Subq, [intermediate_reg; Imm (Lit 0L)]
+                          ; J Eq, [Imm (Lbl (mk_lbl fn l2))]
+                          ; Jmp, [Imm (Lbl (mk_lbl fn l1))]
+                          ]
 
 
 (* compiling blocks --------------------------------------------------------- *)
@@ -306,6 +314,13 @@ let arg_loc (n : int) : operand =
 let stack_layout (args : uid list) ((block, lbled_blocks):cfg) : layout =
 failwith "stack_layout not implemented"
 
+(*returns the asm that saves the arguments on the stack together with the corresponding stack layout*)
+let args_to_stack f_param : (ins list * layout)= 
+  let param_to_stack_f (i:int) (param:uid) = 
+    let dest = Ind3 (Lit (Int64.of_int @@ i*(-8)), Rbp) in
+    (Movq, [arg_loc i; dest]), (param, dest)
+  in
+  List.split @@ List.mapi param_to_stack_f f_param
 
 (* The code for the entry-point of a function must do several things:
 
@@ -327,28 +342,32 @@ let compile_fdecl (tdecls:(tid * ty) list) (name:string) ({ f_ty; f_param; f_cfg
   (*allocate stack space for the entire function*)
   (*place all arguments in stack*)
   let n_params = List.length f_param in
-  let param_to_stack_f (i:int) (param:uid) = 
-      let dest = Ind3 (Lit (Int64.of_int @@ i*(-8)), Rbp) in
-      Movq, [arg_loc i; dest] 
-  in
-  let put_args_on_stack = List.mapi param_to_stack_f f_param in
+  
+  let put_args_on_stack, layout = args_to_stack f_param in
+  let ctxt : ctxt= { tdecls = tdecls; layout = layout} in
   let space_to_allocate = n_params in 
   let space_to_allocate_op = Imm (Lit (Int64.of_int @@ space_to_allocate*8)) in
-  let prologue : ins list = [ 
-                   Pushq, [Reg Rbp] 
-                 ; Movq, [Reg Rsp; Reg Rbp]
-                 ; Subq, [space_to_allocate_op; Reg Rsp]
-                 ] @ put_args_on_stack in
+  let (entryBlock, blockList) = f_cfg in
+  let { insns= entry_ins_list; term = (entryTermLbl, entryTerm) } = entryBlock in 
+
+  let entryBlockAsm : asm = 
+    let insList = [ Pushq, [Reg Rbp] 
+                  ; Movq, [Reg Rsp; Reg Rbp]
+                  ; Subq, [space_to_allocate_op; Reg Rsp]
+                  ] 
+                  @ put_args_on_stack 
+                  (*Missing: entry instruction compilation*)
+                  @ compile_terminator name ctxt entryTerm in
+    Text insList
+  in
   
-  let epilogue = [ Addq, [space_to_allocate_op; Reg Rsp]
-                 ; Popq, [Reg Rbp]
-                 ; Retq, []
-                ] in
+  (*let epilogue = compile_terminator name ctxt in*)
+
   (*compile instructions*)
   (*put together the pieces of the function*)
-  let funct = [{ lbl = name; global= true; asm = Text prologue }] in
+  let funct = { lbl = name; global= true; asm = entryBlockAsm } in
   (*return the funct*)
-  funct
+  [funct]
 
 
 (* compile_gdecl ------------------------------------------------------------ *)
