@@ -302,7 +302,10 @@ let compile_terminator (fn:string) (ctxt:ctxt) (t:Ll.terminator) : ins list =
    [blk]  - LLVM IR code for the block
 *)
 let compile_block (fn:string) (ctxt:ctxt) (blk:Ll.block) : ins list =
-  failwith "compile_block not implemented"
+  let { insns = insns; term = (termLbl, term) } = blk in 
+  let insns_asm = List.concat_map (compile_insn ctxt) insns in
+  let term_asm = compile_terminator fn ctxt term in
+  insns_asm @ term_asm
 
 let compile_lbl_block fn lbl ctxt blk : elem =
   Asm.text (mk_lbl fn lbl) (compile_block fn ctxt blk)
@@ -411,14 +414,16 @@ let compile_fdecl (tdecls:(tid * ty) list) (name:string) ({ f_ty; f_param; f_cfg
                   @ compile_terminator name ctxt entryTerm in
     Text insList
   in
+  let block_to_asm (lbl, block) = compile_lbl_block name lbl ctxt block in
+  let cfg_asm : X86.prog = List.map block_to_asm blockList in
   
   (*let epilogue = compile_terminator name ctxt in*)
 
   (*compile instructions*)
   (*put together the pieces of the function*)
-  let entryAsm = { lbl = name; global= true; asm = entryBlockAsm } in
-  (*return the funct*)
-  entryAsm :: []
+  let entryAsm : X86.elem = { lbl = name; global= true; asm = entryBlockAsm } in
+  (*return the compiled function*)
+  entryAsm :: cfg_asm
 
 
 (* compile_gdecl ------------------------------------------------------------ *)
