@@ -260,9 +260,9 @@ let compile_terminator (fn:string) (ctxt:ctxt) (t:Ll.terminator) : ins list =
     | Br l            -> [ Jmp, [Imm (Lbl (mk_lbl fn l))]]
     | Cbr (o,l1,l2)   -> let comp_bool_op_val = compile_read_operand ctxt intermediate_reg o in
                           comp_bool_op_val @
-                          [ Subq, [intermediate_reg; Imm (Lit 0L)]
-                          ; J Eq, [Imm (Lbl (mk_lbl fn l2))]
-                          ; Jmp, [Imm (Lbl (mk_lbl fn l1))]
+                          [ Subq, [Imm (Lit 1L); intermediate_reg]
+                          ; J Eq, [Imm (Lbl (mk_lbl fn l1))]
+                          ; Jmp, [Imm (Lbl (mk_lbl fn l2))]
                           ]
 
 
@@ -312,15 +312,39 @@ let arg_loc (n : int) : operand =
 
 *)
 let stack_layout (args : uid list) ((block, lbled_blocks):cfg) : layout =
-failwith "stack_layout not implemented"
+  let generate_offset_op i = Ind3 (Lit (Int64.of_int @@ i*(-8)), Rbp) in
+  let param_to_stack_f (i:int) (param:uid) = 
+    let dest = generate_offset_op i in
+    (param, dest)
+  in
+  let sieve_uid_definitions = function
+    | (_, Store _ ) | (_, Call _) -> false
+    | _                      -> true
+  in
+  let extract_insns (lbl, b) = 
+      let { insns = b_insns; term = _ } = b in
+      b_insns
+  in
+  let insn_to_layout (offset:int) : int -> (Ll.uid * Ll.insn) -> (Ll.uid * X86.operand)= 
+    fun (i:int) (u, _) -> (u, generate_offset_op @@ offset + i) 
+  in
+  let arg_locs = List.mapi param_to_stack_f args in
+  let n_args = List.length arg_locs in
+  (*extract one list with all the uids used in the cfg*)
+  let { insns = entry_ins_list; term = _ } = block in
+  let just_insns : (Ll.uid * Ll.insn) list = entry_ins_list @ (List.concat_map extract_insns lbled_blocks) in
+  let uid_insn : (Ll.uid * Ll.insn) list = List.filter sieve_uid_definitions just_insns in
+  let locally_defined_uids : layout = List.mapi (insn_to_layout n_args) uid_insn in
+  let layout = arg_locs @ locally_defined_uids in
+  layout
 
 (*returns the asm that saves the arguments on the stack together with the corresponding stack layout*)
-let args_to_stack f_param : (ins list * layout)= 
+let args_to_stack f_param : ins list = 
   let param_to_stack_f (i:int) (param:uid) = 
     let dest = Ind3 (Lit (Int64.of_int @@ i*(-8)), Rbp) in
-    (Movq, [arg_loc i; dest]), (param, dest)
+    Movq, [arg_loc i; dest]
   in
-  List.split @@ List.mapi param_to_stack_f f_param
+  List.mapi param_to_stack_f f_param
 
 (* The code for the entry-point of a function must do several things:
 
@@ -343,12 +367,13 @@ let compile_fdecl (tdecls:(tid * ty) list) (name:string) ({ f_ty; f_param; f_cfg
   (*place all arguments in stack*)
   let n_params = List.length f_param in
   
-  let put_args_on_stack, layout = args_to_stack f_param in
-  let ctxt : ctxt= { tdecls = tdecls; layout = layout} in
-  let space_to_allocate = n_params in 
+  let layout = stack_layout f_param f_cfg in
+  let put_args_on_stack = args_to_stack f_param in
+  let ctxt : ctxt = { tdecls = tdecls; layout = layout} in
+  let space_to_allocate = List.length layout in 
   let space_to_allocate_op = Imm (Lit (Int64.of_int @@ space_to_allocate*8)) in
   let (entryBlock, blockList) = f_cfg in
-  let { insns= entry_ins_list; term = (entryTermLbl, entryTerm) } = entryBlock in 
+  let { insns = entry_ins_list; term = (entryTermLbl, entryTerm) } = entryBlock in 
 
   let entryBlockAsm : asm = 
     let insList = [ Pushq, [Reg Rbp] 
@@ -365,9 +390,9 @@ let compile_fdecl (tdecls:(tid * ty) list) (name:string) ({ f_ty; f_param; f_cfg
 
   (*compile instructions*)
   (*put together the pieces of the function*)
-  let funct = { lbl = name; global= true; asm = entryBlockAsm } in
+  let entryAsm = { lbl = name; global= true; asm = entryBlockAsm } in
   (*return the funct*)
-  [funct]
+  entryAsm :: []
 
 
 (* compile_gdecl ------------------------------------------------------------ *)
