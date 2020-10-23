@@ -160,7 +160,12 @@ let compile_call (ctxt:ctxt) (opcode:opcode) =
      Your function should simply return 0 in those cases
 *)
 let rec size_ty (tdecls:(tid * ty) list) (t:Ll.ty) : int =
-failwith "size_ty not implemented"
+  match t with 
+    | Void  | I8 | Fun _  -> 0
+    | I1 | I64 | Ptr _    -> 8
+    | Struct ty_list      -> List.fold_left (fun b ty -> size_ty tdecls ty + b) 0 ty_list
+    | Array (n, ty)       -> n * size_ty tdecls ty
+    | Namedt tid          -> size_ty tdecls @@ lookup tdecls tid
 
 
 
@@ -220,35 +225,46 @@ failwith "compile_gep not implemented"
 *)
 let compile_insn (ctxt:ctxt) ((uid:uid), (i:Ll.insn)) : X86.ins list =
   let { tdecls = tdecls; layout = layout } = ctxt in
+  let compile_rd_opnd = compile_read_operand ctxt in
+  let res_loc = lookup layout uid in
+  let interm_res_reg = Reg R12 in
+  let res_to_dest = Movq, [interm_res_reg; res_loc] in
   match i with 
   | Binop (bop, ty, operand1, operand2) -> (
-      let comile_rd_opnd = compile_read_operand ctxt in
-      let interm_res_reg = Reg R12 in
-      let get_frst_oprnd = comile_rd_opnd (Reg R11) operand1 in
-      let get_scnd_oprnd = comile_rd_opnd interm_res_reg operand2 in
+      let get_frst_oprnd = compile_rd_opnd (Reg R13) operand1 in
+      let get_scnd_oprnd = compile_rd_opnd interm_res_reg operand2 in
       let get_opnds = get_frst_oprnd @ get_scnd_oprnd in
-      let get_shft_opnds = get_frst_oprnd @ (comile_rd_opnd (Reg Rcx) operand2) in
-      let res_to_dest = Movq, [interm_res_reg; lookup layout uid] in
+      let get_shft_opnds = get_frst_oprnd @ (compile_rd_opnd (Reg Rcx) operand2) in
       match bop with
-          | Add   ->  get_opnds @ [ Addq, [Reg R11; interm_res_reg]; res_to_dest]
-          | Sub   ->  get_opnds @ [ Subq, [Reg R12; Reg R11]; Movq, [Reg R11; lookup layout uid]]
-          | Mul   ->  get_opnds @ [ Imulq, [Reg R11; interm_res_reg]; res_to_dest]
-          | Shl   ->  get_shft_opnds @ [ Shlq, [Reg Rcx; Reg R11]; Movq, [Reg R11; lookup layout uid]]
-          | Lshr  ->  get_shft_opnds @ [ Shrq, [Reg Rcx; Reg R11]; Movq, [Reg R11; lookup layout uid]]
-          | Ashr  ->  get_shft_opnds @ [ Sarq, [Reg Rcx; Reg R11]; Movq, [Reg R11; lookup layout uid]]
-          | And   ->  get_opnds @ [ Andq, [Reg R11; interm_res_reg]; res_to_dest]
-          | Or    ->  get_opnds @ [ Orq, [Reg R11; interm_res_reg]; res_to_dest]
-          | Xor   ->  get_opnds @ [ Xorq, [Reg R11; interm_res_reg]; res_to_dest]
+          | Add   ->  get_opnds @ [ Addq, [Reg R13; interm_res_reg]; res_to_dest]
+          | Sub   ->  get_opnds @ [ Subq, [Reg R12; Reg R13]; Movq, [Reg R13; res_loc]]
+          | Mul   ->  get_opnds @ [ Imulq, [Reg R13; interm_res_reg]; res_to_dest]
+          | Shl   ->  get_shft_opnds @ [ Shlq, [Reg Rcx; Reg R13]; Movq, [Reg R13; res_loc]]
+          | Lshr  ->  get_shft_opnds @ [ Shrq, [Reg Rcx; Reg R13]; Movq, [Reg R13; res_loc]]
+          | Ashr  ->  get_shft_opnds @ [ Sarq, [Reg Rcx; Reg R13]; Movq, [Reg R13; res_loc]]
+          | And   ->  get_opnds @ [ Andq, [Reg R13; interm_res_reg]; res_to_dest]
+          | Or    ->  get_opnds @ [ Orq, [Reg R13; interm_res_reg]; res_to_dest]
+          | Xor   ->  get_opnds @ [ Xorq, [Reg R13; interm_res_reg]; res_to_dest]
   )
-  (*| Alloca of ty
-  | Load of ty * operand
-  | Store of ty * operand * operand
-  | Icmp of cnd * ty * operand * operand
-  | Call of ty * operand * (ty * operand) list
+  | Icmp (cnd, ty, operand1, operand2) -> (
+      let x84Cnd = compile_cnd cnd in
+      [Set x84Cnd, [res_loc]]
+  )
+  | Load (ty, operand)  -> compile_rd_opnd res_loc operand
+  | Store (ty, operand1, operand2) -> (
+    compile_rd_opnd interm_res_reg operand1
+    @ [ compile_operand ctxt (Reg R13) operand2
+      ; Movq, [interm_res_reg; Ind2 R13]];
+  )
+  | Alloca ty -> [ Subq, [ Imm( Lit (Int64.of_int @@ size_ty tdecls ty)); Reg Rsp]
+                  ; Movq, [ Reg Rsp; res_loc]
+                  ]
+  (*| Call of ty * operand * (ty * operand) list
+  
   | Bitcast of ty * operand * ty
   | Gep of ty * operand * operand list 
   *)
-  | _ -> failwith "compile_insn not implemented"
+  | _ -> failwith "Instruction not implemented"
 
 
 
