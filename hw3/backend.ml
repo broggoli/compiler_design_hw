@@ -102,10 +102,14 @@ let compile_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins =
     | Id uid  ->  (Leaq, [lookup layout uid; dest])
 
 let compile_read_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins list =
-  let interm_reg = Reg R12 in
   fun operand -> match operand with
     | Null | Const _    -> [compile_operand ctxt dest operand]
-    | Gid o | Id o  -> [compile_operand ctxt interm_reg operand; Movq, [Ind2 R12; Reg R13]; Movq, [Reg R13; dest]]
+    | Gid o | Id o  -> 
+      (* Indirection through R13 in case dest lies in memory  (memory -> memory movement not allowed) *)
+      [  compile_operand ctxt (Reg R12) operand
+        ; Movq, [Ind2 R12; Reg R13]
+        ; Movq, [Reg R13; dest]
+      ]
 
 (* compiling call  ---------------------------------------------------------- *)
 
@@ -130,10 +134,11 @@ let compile_call (ctxt:ctxt) (opcode:opcode) =
   (*
     rdi, rsi, rdx, rcx, r09, r08 are the the first 6 arguments
     other arguments placed on stack
-   cleanup stack saved arguments
+    cleanup stack saved arguments
   
   match opcode with
-    | Call*)
+    | Call
+  *)
   failwith "unimplemented compile_call"
 
 
@@ -160,13 +165,16 @@ let compile_call (ctxt:ctxt) (opcode:opcode) =
    - Void, i8, and functions have undefined sizes according to LLVMlite.
      Your function should simply return 0 in those cases
 *)
-let rec size_ty (tdecls:(tid * ty) list) (t:Ll.ty) : int =
-  match t with 
-    | Void  | I8 | Fun _  -> 0
-    | I1 | I64 | Ptr _    -> 8
-    | Struct ty_list      -> List.fold_left (fun b ty -> size_ty tdecls ty + b) 0 ty_list
-    | Array (n, ty)       -> n * size_ty tdecls ty
-    | Namedt tid          -> size_ty tdecls @@ lookup tdecls tid
+let size_ty (tdecls:(tid * ty) list) (t:Ll.ty) : int =
+  let rec aux (typ:Ll.ty) = 
+    match typ with 
+      | Void  | I8 | Fun _  -> 0
+      | I1 | I64 | Ptr _    -> 8
+      | Struct ty_list      -> List.fold_left (fun b ty -> (aux ty) + b) 0 ty_list
+      | Array (n, ty)       -> n * (aux ty)
+      | Namedt tid          -> aux (lookup tdecls tid)
+  in
+  aux t
 
 
 
@@ -201,57 +209,122 @@ exception GEP_INVALID_PATH_TYPE of Ll.ty
 exception GEP_STRUCT_NEEDS_CONST_INDEX
 let compile_gep (ctxt:ctxt) (op : Ll.ty * Ll.operand) (path: Ll.operand list) : ins list =
   let { tdecls = tdecls; layout = layout } = ctxt in
-  let op_type, _ = op in
-  let operand = match op_type with
-    | Ptr ty    ->  let _, oprnd = op in oprnd
-    | _         ->  raise GEP_NO_PNTR
+  let base_type, operand = 
+    match op with
+      | Ptr ty, oprnd ->  (Array (1, ty), oprnd)
+      | _             ->  raise GEP_NO_PNTR
   in
-  (*interm_reg1 always holds the final value of one path step*)
-  let interm_reg1 = Reg R12 in
-  let interm_reg2 = Reg R13 in
-  let type_size (t:Ll.ty) = size_ty tdecls t in
+  (*accum_reg always holds the final value of one path step*)
+  let accum_reg = Reg Rax in
+  let index_reg = Reg R13 in
+  let size_of_type (t:Ll.ty) = size_ty tdecls t in
   let compile_rd_opnd = compile_read_operand ctxt in
   
-  (*interm_reg1 holds the base address*)
-  let base_addr = compile_rd_opnd interm_reg1 operand in
+  (*accum_reg holds the base address
+  let base_addr = compile_rd_opnd accum_reg operand i
+  n*)
+  let imm_of_int i = Imm (Lit (Int64.of_int i)) in
+  
+  (*accum_reg holds the base address*)
+  let base_addr = [compile_operand ctxt accum_reg operand] in
 
   let rec compile_traverse_path (ty: Ll.ty) (rem_path: Ll.operand list) (insns: ins list) = 
     match rem_path with
       | []                -> insns
       | opnd :: next_path -> (
-        let curr_type_size = type_size ty in
-        let compile_index = compile_rd_opnd interm_reg2 opnd in
-        let rec get_next_type t = 
-          if List.length path > 1 
-          then 
-            match t with
-              | Void | I8 | I1 
-              | Fun _ | I64 -> t
-              | Ptr ty        -> get_next_type ty
-              | Struct ty_list      -> (
-                match opnd with
-                  | Const i   -> List.nth ty_list (Int64.to_int i)
-                  | _         -> raise GEP_STRUCT_NEEDS_CONST_INDEX
+        let rec get_next : Ll.ty -> (Ll.ty * ins list) = function
+          | Struct ty_list -> (
+            match opnd with
+              | Const c   -> (
+                let i = (Int64.to_int c) in
+                let next_type = List.nth ty_list i in
+                let take li n = 
+                  let rec aux (n:int) : 'a list -> 'a list = function
+                    | x::xs ->  if n > 0 then x :: aux (n-1) xs else []
+                    | x     ->  x
+                  in aux li n
+                in
+                let trunk_ty_list = take i ty_list in
+                let jump = List.fold_left (fun sum ty -> sum + (size_of_type ty)) 0 trunk_ty_list in
+                let add_insns = [Addq, [imm_of_int jump; accum_reg]] in
+                next_type, add_insns
               )
-              | Array (n, typ)       -> typ
-              | Namedt tid          -> get_next_type @@ lookup tdecls tid
-          else ty
-
+              | _         -> raise GEP_STRUCT_NEEDS_CONST_INDEX
+          )
+          | Array (n, typ) -> (
+            let next_type = typ in
+            let add_insns = 
+              compile_rd_opnd index_reg opnd
+              @ 
+              [ Imulq, [imm_of_int @@ size_of_type typ; index_reg]
+              ; Addq, [index_reg; accum_reg]
+              ]
+            in
+            next_type, add_insns 
+          )
+          | Namedt tid  -> get_next @@ lookup tdecls tid
+          | t           -> t, [Addq, [imm_of_int 1000; accum_reg]]
         in
-        let new_insns = insns
-          @ compile_index 
-          @ [ Imulq, [Imm (Lit (Int64.of_int curr_type_size)); interm_reg2]
-            ; Addq, [interm_reg2; interm_reg1]
-            ]
+        let next_type, add_insns = get_next ty in
+        compile_traverse_path next_type next_path (insns @ add_insns)
+      )
+    in
+    let path_traversal = compile_traverse_path base_type path [] in
+    base_addr @ path_traversal
+(*
+  let rec compile_traverse_path (ty: Ll.ty) (rem_path: Ll.operand list) (insns: ins list) = 
+    match rem_path with
+      | []                -> insns
+      | opnd :: next_path -> (
+        let rec get_next_type = 
+          function 
+            | Struct ty_list   -> (
+              match opnd with
+                | Const i   -> List.nth ty_list (Int64.to_int i)
+                | _         -> raise GEP_STRUCT_NEEDS_CONST_INDEX
+            )
+            | Array (n, typ)  -> typ
+            | Namedt tid      -> get_next_type @@ lookup tdecls tid
+            | t               -> t (* Error case *)
         in 
+        let comp_struct_offset ty_list = 
+          let offset_in_struct = match opnd with
+            | Const index   -> (
+              let rec aux (res:int) (i:int): int =
+                  if i = 0 
+                    then res
+                    else 
+                      let size_nth = type_size @@ List.nth ty_list i in
+                      aux (i-1) (res + size_nth)
+              in
+              Int64.of_int @@ aux 0 (Int64.to_int index)
+            )
+            | _  -> raise GEP_STRUCT_NEEDS_CONST_INDEX
+          in
+          [Addq, [Imm (Lit offset_in_struct); accum_reg]]
+        in
+        let comp_array_offset = 
+          compile_rd_opnd index_reg opnd
+          @ 
+          [ Imulq, [Imm (Lit (Int64.of_int @@ type_size ty)); index_reg]
+          ; Addq, [index_reg; accum_reg]
+          ]
+        in
+        let rec add_offset = function
+            | Struct ty_list  -> comp_struct_offset ty_list
+            | Array (n, typ)  -> comp_array_offset 
+            | Namedt tid      -> add_offset @@ lookup tdecls tid
+            | _               -> []
+        in
         let next_type = get_next_type ty in
+        let new_insns = insns @ add_offset ty in
         compile_traverse_path next_type next_path new_insns
       )
   in
-  let path_traversal = compile_traverse_path op_type path [] in
+  let path_traversal = compile_traverse_path base_type path [] in
   base_addr @ path_traversal
 
-
+*)
 
 
 (* compiling instructions  -------------------------------------------------- *)
@@ -304,7 +377,10 @@ let compile_insn (ctxt:ctxt) ((uid:uid), (i:Ll.insn)) : X86.ins list =
       let x84Cnd = compile_cnd cnd in
       [Set x84Cnd, [res_loc]]
   )
-  | Load (ty, operand)  -> compile_rd_opnd res_loc operand
+  | Load (ty, operand)  -> compile_rd_opnd (Reg R14) operand 
+                        @ [Movq, [Ind2 R14; interm_res_reg]
+                          ;res_to_dest
+                        ]
   | Store (ty, operand1, operand2) -> (
       compile_rd_opnd interm_res_reg operand1
       @ [ compile_operand ctxt (Reg R13) operand2
@@ -315,7 +391,7 @@ let compile_insn (ctxt:ctxt) ((uid:uid), (i:Ll.insn)) : X86.ins list =
         ; Movq, [ Reg Rsp; res_loc]
       ]
   *)
-  | Gep (ty, operand, path) ->  (compile_gep ctxt (ty, operand) path) @ [res_to_dest]
+  | Gep (ty, operand, path) ->  (compile_gep ctxt (ty, operand) path) @ [Movq, [Reg Rax; res_loc]]
   | Bitcast (ty1, operand, ty2) -> []
   (*| Call ty compile_call
   | Call of ty * operand * (ty * operand) list
