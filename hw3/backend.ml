@@ -102,11 +102,10 @@ let compile_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins =
     | Id uid  ->  (Leaq, [lookup layout uid; dest])
 
 let compile_read_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins list =
-  let { tdecls = tdecls; layout = layout } = ctxt in
-  let intermediate_reg = R12 in
+  let interm_reg = Reg R12 in
   fun operand -> match operand with
     | Null | Const _    -> [compile_operand ctxt dest operand]
-    | Gid o | Id o  -> [compile_operand ctxt (Reg intermediate_reg) operand; Movq, [Ind2 intermediate_reg; dest]]
+    | Gid o | Id o  -> [compile_operand ctxt interm_reg operand; Movq, [Ind2 R12; Reg R13]; Movq, [Reg R13; dest]]
 
 (* compiling call  ---------------------------------------------------------- *)
 
@@ -132,7 +131,9 @@ let compile_call (ctxt:ctxt) (opcode:opcode) =
     rdi, rsi, rdx, rcx, r09, r08 are the the first 6 arguments
     other arguments placed on stack
    cleanup stack saved arguments
-  *)
+  
+  match opcode with
+    | Call*)
   failwith "unimplemented compile_call"
 
 
@@ -195,8 +196,61 @@ let rec size_ty (tdecls:(tid * ty) list) (t:Ll.ty) : int =
       in (4), but relative to the type f the sub-element picked out
       by the path so far
 *)
+exception GEP_NO_PNTR
+exception GEP_INVALID_PATH_TYPE of Ll.ty
+exception GEP_STRUCT_NEEDS_CONST_INDEX
 let compile_gep (ctxt:ctxt) (op : Ll.ty * Ll.operand) (path: Ll.operand list) : ins list =
-failwith "compile_gep not implemented"
+  let { tdecls = tdecls; layout = layout } = ctxt in
+  let op_type, _ = op in
+  let operand = match op_type with
+    | Ptr ty    ->  let _, oprnd = op in oprnd
+    | _         ->  raise GEP_NO_PNTR
+  in
+  (*interm_reg1 always holds the final value of one path step*)
+  let interm_reg1 = Reg R12 in
+  let interm_reg2 = Reg R13 in
+  let type_size (t:Ll.ty) = size_ty tdecls t in
+  let compile_rd_opnd = compile_read_operand ctxt in
+  
+  (*interm_reg1 holds the base address*)
+  let base_addr = compile_rd_opnd interm_reg1 operand in
+
+  let rec compile_traverse_path (ty: Ll.ty) (rem_path: Ll.operand list) (insns: ins list) = 
+    match rem_path with
+      | []                -> insns
+      | opnd :: next_path -> (
+        let curr_type_size = type_size ty in
+        let compile_index = compile_rd_opnd interm_reg2 opnd in
+        let rec get_next_type t = 
+          if List.length path > 1 
+          then 
+            match t with
+              | Void | I8 | I1 
+              | Fun _ | I64 -> t
+              | Ptr ty        -> get_next_type ty
+              | Struct ty_list      -> (
+                match opnd with
+                  | Const i   -> List.nth ty_list (Int64.to_int i)
+                  | _         -> raise GEP_STRUCT_NEEDS_CONST_INDEX
+              )
+              | Array (n, typ)       -> typ
+              | Namedt tid          -> get_next_type @@ lookup tdecls tid
+          else ty
+
+        in
+        let new_insns = insns
+          @ compile_index 
+          @ [ Imulq, [Imm (Lit (Int64.of_int curr_type_size)); interm_reg2]
+            ; Addq, [interm_reg2; interm_reg1]
+            ]
+        in 
+        let next_type = get_next_type ty in
+        compile_traverse_path next_type next_path new_insns
+      )
+  in
+  let path_traversal = compile_traverse_path op_type path [] in
+  base_addr @ path_traversal
+
 
 
 
@@ -252,17 +306,20 @@ let compile_insn (ctxt:ctxt) ((uid:uid), (i:Ll.insn)) : X86.ins list =
   )
   | Load (ty, operand)  -> compile_rd_opnd res_loc operand
   | Store (ty, operand1, operand2) -> (
-    compile_rd_opnd interm_res_reg operand1
-    @ [ compile_operand ctxt (Reg R13) operand2
-      ; Movq, [interm_res_reg; Ind2 R13]];
+      compile_rd_opnd interm_res_reg operand1
+      @ [ compile_operand ctxt (Reg R13) operand2
+        ; Movq, [interm_res_reg; Ind2 R13]];
   )
-  | Alloca ty -> [ Subq, [ Imm( Lit (Int64.of_int @@ size_ty tdecls ty)); Reg Rsp]
-                  ; Movq, [ Reg Rsp; res_loc]
-                  ]
-  (*| Call of ty * operand * (ty * operand) list
+  | Alloca ty -> [](*
+      [ Subq, [ Imm( Lit (Int64.of_int @@ size_ty tdecls ty)); Reg Rsp]
+        ; Movq, [ Reg Rsp; res_loc]
+      ]
+  *)
+  | Gep (ty, operand, path) ->  (compile_gep ctxt (ty, operand) path) @ [res_to_dest]
+  | Bitcast (ty1, operand, ty2) -> []
+  (*| Call ty compile_call
+  | Call of ty * operand * (ty * operand) list
   
-  | Bitcast of ty * operand * ty
-  | Gep of ty * operand * operand list 
   *)
   | _ -> failwith "Instruction not implemented"
 
@@ -361,7 +418,7 @@ let arg_loc (n : int) : operand =
 let stack_layout (args : uid list) ((block, lbled_blocks):cfg) : layout =
   let generate_offset_op i = Ind3 (Lit (Int64.of_int @@ i*(-8)), Rbp) in
   let param_to_stack_f (i:int) (param:uid) = 
-    let dest = generate_offset_op i in
+    let dest = generate_offset_op (i+1) in
     (param, dest)
   in
   let sieve_uid_definitions = function
@@ -372,6 +429,19 @@ let stack_layout (args : uid list) ((block, lbled_blocks):cfg) : layout =
       let { insns = b_insns; term = _ } = b in
       b_insns
   in
+  (*let insns_to_layout (init_offset:int) : (Ll.uid * Ll.insn) -> (int * (Ll.uid * Ll.insn)) list -> (int * (Ll.uid * Ll.insn)) list = 
+    fun (u, ins) b -> 
+      let base_offset = function 
+          | []          -> init_offset 
+          | (o, _)::xs  -> o
+      in
+      let alloc_size = function 
+          | Alloca ty -> (size_ty ty) / 8
+          | _         -> 1
+      in
+      let new_offset = base_offset b + alloc_size ins in
+      (new_offset, (u, generate_offset_op new_offset)) :: b
+  in*)
   let insn_to_layout (offset:int) : int -> (Ll.uid * Ll.insn) -> (Ll.uid * X86.operand)= 
     fun (i:int) (u, _) -> (u, generate_offset_op @@ offset + i) 
   in
@@ -381,14 +451,15 @@ let stack_layout (args : uid list) ((block, lbled_blocks):cfg) : layout =
   let { insns = entry_ins_list; term = _ } = block in
   let just_insns : (Ll.uid * Ll.insn) list = entry_ins_list @ (List.concat_map extract_insns lbled_blocks) in
   let uid_insn : (Ll.uid * Ll.insn) list = List.filter sieve_uid_definitions just_insns in
-  let locally_defined_uids : layout = List.mapi (insn_to_layout n_args) uid_insn in
+  let locally_defined_uids : layout = List.mapi (insn_to_layout (n_args+1)) uid_insn in
+  (*let (_, locally_defined_uids ) = List.split @@ List.fold_left (insns_to_layout n_args+1) [] uid_insn in*)
   let layout = arg_locs @ locally_defined_uids in
   layout
 
 (*returns the asm that saves the arguments on the stack together with the corresponding stack layout*)
 let args_to_stack f_param : ins list = 
   let param_to_stack_f (i:int) (param:uid) = 
-    let dest = Ind3 (Lit (Int64.of_int @@ i*(-8)), Rbp) in
+    let dest = Ind3 (Lit (Int64.of_int @@ (i+1)*(-8)), Rbp) in
     Movq, [arg_loc i; dest]
   in
   List.mapi param_to_stack_f f_param

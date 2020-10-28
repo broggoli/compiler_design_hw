@@ -2,3 +2,4 @@ output
 _build
 *.pdf
 *.zip
+*.out
