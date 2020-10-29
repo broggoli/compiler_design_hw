@@ -114,7 +114,7 @@ let compile_read_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins list
     | Null | Const _    -> [compile_operand ctxt dest operand]
        (*Indirection through R13 in case dest lies in memory  (memory -> memory movement not allowed) *)
     | Gid o     -> [  compile_operand ctxt (Reg addr_reg) operand
-                    ; Movq, [Ind2 addr_reg; Reg mid_reg]
+                    ; Movq, [Reg addr_reg; Reg mid_reg]
                     ; Movq, [Reg mid_reg; dest]
                   ]
     | Id uid    -> [Movq, [lookup layout uid; Reg mid_reg]; Movq, [Reg mid_reg; dest]]
