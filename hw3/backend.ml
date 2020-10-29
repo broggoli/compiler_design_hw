@@ -63,7 +63,7 @@ let print_list l = print_endline "list:";
                   List.map (fun x -> print_endline x;) l; 
                   print_endline "End list"
 (* useful for looking up items in tdecls or layouts *)
-let lookup m x = print_endline @@ "lookup x: "^ x; print_list (fst @@ List.split m); List.assoc x m
+let lookup m x = (*print_endline @@ "lookup x: "^ x; print_list (fst @@ List.split m);*) List.assoc x m
 
 
 let string_of_operand = function
@@ -121,7 +121,7 @@ let compile_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins =
     | Const i -> (Movq, [Imm (Lit i); dest])
     (* Not sure whether the gid compilation is correct! *)
     | Gid gid -> (Leaq, [Ind3 (Lbl (Platform.mangle gid), Rip); dest])    
-    | Id uid  ->  (Leaq, [lookup layout uid; dest])
+    | Id uid  ->  (Movq, [lookup layout uid; dest])
 
 let compile_read_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins list =
   fun operand -> match operand with
@@ -385,7 +385,7 @@ let compile_insn (ctxt:ctxt) ((uid:uid), (i:Ll.insn)) : X86.ins list =
       value @ [destination_addr; Movq, [interm_res_reg; Ind2 R13]]
   )
   | Alloca ty ->  print_endline "Compile alloca";
-                  print_layout layout;
+                  (*print_layout layout;*)
       let res_loc = lookup layout uid in
       [ Subq, [ Imm(Lit 8L); Reg Rsp]
       ; Movq, [ Reg Rsp; res_loc ]
@@ -432,8 +432,8 @@ let compile_terminator (fn:string) (ctxt:ctxt) (t:Ll.terminator) : ins list =
                           ; Retq, []
                         ]
     | Br l            -> [ Jmp, [Imm (Lbl (mk_lbl fn l))]]
-    | Cbr (o,l1,l2)   -> let comp_bool_op_val = compile_read_operand ctxt intermediate_reg o in
-                          comp_bool_op_val @
+    | Cbr (o,l1,l2)   -> let comp_bool_op_val = compile_operand ctxt intermediate_reg o in
+                          comp_bool_op_val ::
                           [ Cmpq, [Imm (lit_of_int 0); intermediate_reg]
                           ; J Eq, [Imm (Lbl (mk_lbl fn l2))]
                           ; Jmp, [Imm (Lbl (mk_lbl fn l1))]
