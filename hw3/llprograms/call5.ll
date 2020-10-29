@@ -15,7 +15,7 @@ define i64 @foo(i64 %x) {
 }
 
 define i64 @main(i64 %argc, i8** %arcv) {
-  %1 = call i64 @foo(i64 3)
+  %1 = call i64 @bar(i64 1, i64 1, i64 1, i64 1, i64 1, i64 1, i64 1, i64 1)
   ret i64 %1
 }
 
