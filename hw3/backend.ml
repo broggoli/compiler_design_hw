@@ -66,6 +66,24 @@ let print_list l = print_endline "list:";
 let lookup m x = print_endline @@ "lookup x: "^ x; print_list (fst @@ List.split m); List.assoc x m
 
 
+let string_of_operand = function
+  | Null -> "Null"
+  | Const i -> "Const: " ^ Int64.to_string i
+  | Gid id -> "Gid: " ^ id
+  | Id id -> "Id: " ^ id
+
+
+let string_of_insn = function
+  | Binop (_,_, op1, op2) | Store (_, op1, op2) | Icmp (_,_, op1, op2) -> "op1: " ^ (string_of_operand op1) ^ " op2: " ^ (string_of_operand op2)
+  | Load (_, op1) | Bitcast (_, op1, _) -> (string_of_operand op1)
+  | _ -> "too complicated"
+
+
+
+let pprint_insns insns_list = 
+  List.map (fun (uid, insn) -> print_endline @@ "uid: " ^ uid ^ " " ^ string_of_insn insn) insns_list; ()
+
+
 (* compiling operands  ------------------------------------------------------ *)
 
 (* LLVM IR instructions support several kinds of operands.
