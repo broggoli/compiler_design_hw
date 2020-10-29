@@ -104,7 +104,7 @@ let compile_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins =
     | Const i -> (Movq, [Imm (Lit i); dest])
     (* Not sure whether the gid compilation is correct! *)
     | Gid gid -> (Leaq, [Ind3 (Lbl (Platform.mangle gid), Rip); dest])    
-    | Id uid  ->  (Leaq, [lookup layout uid; dest])
+    | Id uid  ->  (Movq, [lookup layout uid; dest])
 
 let compile_read_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins list =
   let { tdecls = tdecls; layout = layout } = ctxt in
