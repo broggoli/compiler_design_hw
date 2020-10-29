@@ -108,14 +108,16 @@ let compile_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins =
 
 let compile_read_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins list =
   let { tdecls = tdecls; layout = layout } = ctxt in
+  let mid_reg = R11 in
+  let addr_reg = R10 in
   fun operand -> match operand with
     | Null | Const _    -> [compile_operand ctxt dest operand]
        (*Indirection through R13 in case dest lies in memory  (memory -> memory movement not allowed) *)
-    | Gid o     -> [  compile_operand ctxt (Reg R12) operand
-                    ; Movq, [Ind2 R12; Reg R13]
-                    ; Movq, [Reg R13; dest]
+    | Gid o     -> [  compile_operand ctxt (Reg addr_reg) operand
+                    ; Movq, [Ind2 addr_reg; Reg mid_reg]
+                    ; Movq, [Reg mid_reg; dest]
                   ]
-    | Id uid    -> [Movq, [lookup layout uid; Reg R13]; Movq, [Reg R13; dest]]
+    | Id uid    -> [Movq, [lookup layout uid; Reg mid_reg]; Movq, [Reg mid_reg; dest]]
 
 (* compiling call  ---------------------------------------------------------- *)
 
