@@ -59,8 +59,11 @@ type ctxt = { tdecls : (tid * ty) list
             ; layout : layout
             }
 
+let print_list l = print_endline "list:"; 
+                  List.map (fun x -> print_endline x;) l; 
+                  print_endline "End list"
 (* useful for looking up items in tdecls or layouts *)
-let lookup m x = List.assoc x m
+let lookup m x = print_endline @@ "lookup x: "^ x; print_list (fst @@ List.split m); List.assoc x m
 
 
 (* compiling operands  ------------------------------------------------------ *)
@@ -321,11 +324,11 @@ let print_layout layout =
 let compile_insn (ctxt:ctxt) ((uid:uid), (i:Ll.insn)) : X86.ins list =
   let { tdecls = tdecls; layout = layout } = ctxt in
   let compile_rd_opnd = compile_read_operand ctxt in
-  let res_loc = lookup layout uid in
   let interm_res_reg = Reg R12 in
-  let res_to_dest = Movq, [interm_res_reg; res_loc] in
   match i with 
   | Binop (bop, ty, operand1, operand2) -> print_endline "Compile binop";(
+      let res_loc = lookup layout uid in
+      let res_to_dest = Movq, [interm_res_reg; res_loc] in
       let get_frst_oprnd = compile_rd_opnd (Reg R13) operand1 in
       let get_scnd_oprnd = compile_rd_opnd interm_res_reg operand2 in
       let get_opnds = get_frst_oprnd @ get_scnd_oprnd in
@@ -342,6 +345,7 @@ let compile_insn (ctxt:ctxt) ((uid:uid), (i:Ll.insn)) : X86.ins list =
           | Xor   ->  get_opnds @ [ Xorq, [Reg R13; interm_res_reg]; res_to_dest]
   )
   | Icmp (cnd, ty, operand1, operand2) -> print_endline "Compile icmp";(
+    let res_loc = lookup layout uid in
     let get_frst_oprnd = compile_rd_opnd (Reg R13) operand1 in
     let get_scnd_oprnd = compile_rd_opnd (Reg R12) operand2 in
     let get_opnds = get_frst_oprnd @ get_scnd_oprnd in
@@ -351,10 +355,11 @@ let compile_insn (ctxt:ctxt) ((uid:uid), (i:Ll.insn)) : X86.ins list =
       ; Set x84Cnd, [res_loc]]
   )
   | Load (ty, operand)  -> print_endline "Compile load";
-                        compile_rd_opnd (Reg R14) operand 
-                        @ [Movq, [Ind2 R14; interm_res_reg]
-                          ; res_to_dest
-                        ]
+      let res_loc = lookup layout uid in
+      let res_to_dest = Movq, [interm_res_reg; res_loc] in
+      compile_rd_opnd (Reg R14) operand 
+      @ [Movq, [Ind2 R14; interm_res_reg]
+        ; res_to_dest]
   | Store (ty, operand1, operand2) -> 
   print_endline "Compile store"; (
       let value = compile_rd_opnd interm_res_reg operand1 in
@@ -363,12 +368,17 @@ let compile_insn (ctxt:ctxt) ((uid:uid), (i:Ll.insn)) : X86.ins list =
   )
   | Alloca ty ->  print_endline "Compile alloca";
                   print_layout layout;
+      let res_loc = lookup layout uid in
       [ Subq, [ Imm(Lit 8L); Reg Rsp]
       ; Movq, [ Reg Rsp; res_loc ]
       ]
-  | Gep (ty, operand, path) -> print_endline "Compile gep"; (compile_gep ctxt (ty, operand) path) @ [Movq, [Reg Rax; res_loc]]
+  | Gep (ty, operand, path) -> print_endline "Compile gep"; 
+                      let res_loc = lookup layout uid in
+                      (compile_gep ctxt (ty, operand) path) @ [Movq, [Reg Rax; res_loc]]
   | Bitcast (ty1, operand, ty2)   -> print_endline "Compile bitcast";[]
-  | Call (ret_ty, fn_ptr, arg_list) -> print_endline "Compile call"; compile_call ctxt fn_ptr arg_list @ [Movq, [Reg Rax; res_loc]]
+  | Call (ret_ty, fn_ptr, arg_list) -> print_endline "Compile call";
+      let res_loc = lookup layout uid in
+      compile_call ctxt fn_ptr arg_list @ [Movq, [Reg Rax; res_loc]]
 
 (* compiling terminators  --------------------------------------------------- *)
 
@@ -393,11 +403,11 @@ let compile_terminator (fn:string) (ctxt:ctxt) (t:Ll.terminator) : ins list =
   let {layout = layout} = ctxt in
   let n_stack_slots = List.length layout in
     match t with
-    | Ret (_, Some o) -> print_endline "Test-7"; 
-                          (compile_read_operand ctxt (Reg Rax) o ) 
-                        @ [ Movq, [Reg Rbp; Reg Rsp]
-                          ; Popq, [Reg Rbp]
-                          ; Retq, []]
+    | Ret (_, Some o) ->
+        (compile_read_operand ctxt (Reg Rax) o ) 
+        @ [ Movq, [Reg Rbp; Reg Rsp]
+          ; Popq, [Reg Rbp]
+          ; Retq, []]
     | Ret (_, None)   -> [  (*TODO: What happens with void function returns*)
                             Movq, [Reg Rbp; Reg Rsp]
                           ; Popq, [Reg Rbp]
@@ -477,7 +487,7 @@ let stack_layout (args : uid list) ((block, lbled_blocks):cfg) : layout =
     (param, dest)
   in
   let sieve_uid_definitions = function
-    | (_, Store _ ) | (_, Call _) -> false
+    | (_, Store _ )          -> false
     | _                      -> true
   in
   let insn_to_layout (offset:int) : int -> (Ll.uid * Ll.insn) -> (Ll.uid * X86.operand)= 
@@ -534,8 +544,7 @@ let compile_fdecl (tdecls:(tid * ty) list) (name:string) ({ f_ty; f_param; f_cfg
   let space_to_allocate = List.length layout in 
   let space_to_allocate_op = Imm (lit_of_int @@ space_to_allocate * 8) in
   let (entryBlock, blockList) = f_cfg in
-  let { insns = entry_ins_list; term = (entryTermLbl, entryTerm) } = entryBlock in 
-  print_endline "Test-3"; 
+  let { insns = entry_ins_list; term = (entryTermLbl, entryTerm) } = entryBlock in
   let entryBlockAsm : asm = 
     let insList = [ Pushq, [Reg Rbp] 
                   ; Movq, [Reg Rsp; Reg Rbp]
@@ -548,7 +557,6 @@ let compile_fdecl (tdecls:(tid * ty) list) (name:string) ({ f_ty; f_param; f_cfg
   in
   let block_to_asm (lbl, block) = compile_lbl_block name lbl ctxt block in
 
-  print_endline "Test-1.5"; 
   let cfg_asm : X86.prog = List.map block_to_asm blockList in
   
   (*let epilogue = compile_terminator name ctxt in*)
@@ -557,7 +565,6 @@ let compile_fdecl (tdecls:(tid * ty) list) (name:string) ({ f_ty; f_param; f_cfg
   (*put together the pieces of the function*)
   let entryAsm : X86.elem = { lbl = name; global= true; asm = entryBlockAsm } in
   (*return the compiled function*)
-  print_endline "Test-1"; 
   entryAsm :: cfg_asm
 
 
