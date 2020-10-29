@@ -364,7 +364,7 @@ let compile_insn (ctxt:ctxt) ((uid:uid), (i:Ll.insn)) : X86.ins list =
   | Alloca ty ->  print_endline "Compile alloca";
                   print_layout layout;
       [ Subq, [ Imm(Lit 8L); Reg Rsp]
-        ; Movq, [ Reg Rsp; res_loc ]
+      ; Movq, [ Reg Rsp; res_loc ]
       ]
   | Gep (ty, operand, path) -> print_endline "Compile gep"; (compile_gep ctxt (ty, operand) path) @ [Movq, [Reg Rax; res_loc]]
   | Bitcast (ty1, operand, ty2)   -> print_endline "Compile bitcast";[]
@@ -389,18 +389,17 @@ let mk_lbl (fn:string) (l:string) = fn ^ "." ^ l
    [fn] - the name of the function containing this terminator
 *)
 let compile_terminator (fn:string) (ctxt:ctxt) (t:Ll.terminator) : ins list =
-  print_endline "Test-7"; 
   let intermediate_reg = Reg R12 in
   let {layout = layout} = ctxt in
   let n_stack_slots = List.length layout in
-  let space_to_allocate_op = Imm (lit_of_int @@ n_stack_slots * 8)  in
     match t with
-    | Ret (_, Some o) -> (compile_read_operand ctxt (Reg Rax) o ) 
-                        @ [ Addq, [space_to_allocate_op; Reg Rsp]
+    | Ret (_, Some o) -> print_endline "Test-7"; 
+                          (compile_read_operand ctxt (Reg Rax) o ) 
+                        @ [ Movq, [Reg Rbp; Reg Rsp]
                           ; Popq, [Reg Rbp]
                           ; Retq, []]
     | Ret (_, None)   -> [  (*TODO: What happens with void function returns*)
-                            Addq, [space_to_allocate_op; Reg Rsp]
+                            Movq, [Reg Rbp; Reg Rsp]
                           ; Popq, [Reg Rbp]
                           ; Retq, []
                         ]
@@ -502,14 +501,14 @@ let args_to_stack f_param : ins list =
   in
   List.mapi param_to_stack_f f_param
 
-let count_alloca (cfg:cfg) : (Ll.uid * Ll.insn) list = 
+(*let count_alloca (cfg:cfg) : (Ll.uid * Ll.insn) list = 
   let sieve_alloca = function
     | _ , Alloca _  -> true
     | _         -> false
   in
   let just_insns : (Ll.uid * Ll.insn) list = insns_of_cfg cfg in
   List.filter sieve_alloca just_insns
-
+*)
 (* The code for the entry-point of a function must do several things:
 
    - since our simple compiler maps local %uids to stack slots,
