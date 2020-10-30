@@ -377,7 +377,10 @@ let compile_insn (ctxt:ctxt) ((uid:uid), (i:Ll.insn)) : X86.ins list =
   | Gep (ty, operand, path) ->
       let res_loc = lookup layout uid in
       (compile_gep ctxt (ty, operand) path) @ [Movq, [Reg Rax; res_loc]]
-  | Bitcast (ty1, operand, ty2)   -> []
+  | Bitcast (ty1, operand, ty2)   -> 
+      let res_loc = lookup layout uid in
+      let get_oprnd = compile_rd_opnd (Reg R13) operand in
+      get_oprnd @ [Movq, [Reg R13; res_loc]]
   | Call (ret_ty, fn_ptr, arg_list) ->
       let res_loc = lookup layout uid in
       compile_call ctxt fn_ptr arg_list @ [Movq, [Reg Rax; res_loc]]
