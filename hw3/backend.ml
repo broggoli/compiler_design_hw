@@ -108,8 +108,8 @@ let compile_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins =
 
 let compile_read_operand (ctxt:ctxt) (dest:X86.operand) : Ll.operand -> ins list =
   let { tdecls = tdecls; layout = layout } = ctxt in
-  let mid_reg = R11 in
-  let addr_reg = R10 in
+  let mid_reg = R14 in
+  let addr_reg = R15 in
   fun operand -> match operand with
     | Null | Const _    -> [compile_operand ctxt dest operand]
        (*Indirection through R13 in case dest lies in memory  (memory -> memory movement not allowed) *)
