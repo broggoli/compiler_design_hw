@@ -29,13 +29,18 @@
   ("null", NULL);
   ("void", TVOID);
   ("int", TINT);
+  ("bool", TBOOL);
+  ("true", TRUE);
+  ("false", FALSE);
   ("string", TSTRING);
   ("else", ELSE);
   ("if", IF);
+  ("new", NEW);
   ("while", WHILE);
   ("return", RETURN);
   ("var", VAR);
   ("global", GLOBAL);
+  ("for", FOR);
 
   (* Symbols *)
   ( ";", SEMI);
@@ -44,6 +49,18 @@
   ( "}", RBRACE);
   ( "+", PLUS);
   ( "-", DASH);
+  ( "|", PIPE);
+  ( "&", AND);
+  ( "[|]", BPIPE);
+  ( "[&]", BAND);
+  ( "!=", NEQ);
+  ( ">=", GEQ);
+  ( ">", GREAT);
+  ( "<=", LEQ);
+  ( "<", LE);
+  ( "<<", ARL);
+  ( ">>", ARR);
+  ( ">>>", DARR);
   ( "*", STAR);
   ( "=", EQ);
   ( "==", EQEQ);
@@ -127,7 +144,12 @@ rule token = parse
   | newline { newline lexbuf; token lexbuf }
 
   | ';' | ',' | '{' | '}' | '+' | '-' | '*' | '=' | "==" 
-  | "!=" | '!' | '~' | '(' | ')' | '[' | ']' 
+  | "!=" | '!' | '~' | '(' | ')' | '[' | ']' | '|' | '&'
+  | "[|]" | "[&]" | "!=" | ">=" | '>' | "<=" | "<" | "<<"
+  | ">>" | ">>>" 
+  | "null" | "void" | "int" | "bool" | "true" | "false"
+  | "string" | "else" | "if" | "new" | "while" | "return"
+  | "var" | "global" | "for"
     { create_token lexbuf }
 
   | _ as c { unexpected_char lexbuf c }
