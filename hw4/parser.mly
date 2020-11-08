@@ -184,13 +184,13 @@ stmt:
   | RETURN SEMI         { loc $startpos $endpos @@ Ret(None) }
   | RETURN e=exp SEMI   { loc $startpos $endpos @@ Ret(Some e) }
   /* TODO find out what opt means in language specification*/
-  | FOR LPAREN d=list(vdecl) SEMI e=exp SEMI s=stmt RPAREN b=block 
+  | FOR LPAREN d=separated_list(COMMA, vdecl) SEMI e=exp SEMI s=stmt RPAREN b=block 
                         { loc $startpos $endpos @@ For(d, Some e, Some s, b)}
-  | FOR LPAREN d=list(vdecl) SEMI e=exp SEMI RPAREN b=block 
+  | FOR LPAREN d=separated_list(COMMA, vdecl) SEMI e=exp SEMI RPAREN b=block 
                         { loc $startpos $endpos @@ For(d, Some e, None, b)}
-  | FOR LPAREN d=list(vdecl) SEMI SEMI s=stmt RPAREN b=block 
+  | FOR LPAREN d=separated_list(COMMA, vdecl) SEMI SEMI s=stmt RPAREN b=block 
                         { loc $startpos $endpos @@ For(d, None, Some s, b)}
-  | FOR LPAREN d=list(vdecl) SEMI SEMI RPAREN b=block 
+  | FOR LPAREN d=separated_list(COMMA, vdecl) SEMI SEMI RPAREN b=block 
                         { loc $startpos $endpos @@ For(d, None, None, b)}
   | WHILE LPAREN e=exp RPAREN b=block  
                         { loc $startpos $endpos @@ While(e, b) } 
