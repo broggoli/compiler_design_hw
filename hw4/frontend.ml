@@ -245,6 +245,7 @@ let typ_of_unop : Ast.unop -> Ast.ty * Ast.ty = function
 
 *)
 
+(* TODO: get what this means... *)
 (* Global initialized arrays:
 
   There is another wrinkle: To compile global initialized arrays like in the
@@ -366,7 +367,20 @@ let cmp_function_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
    in well-formed programs. (The constructors starting with C). 
 *)
 let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
-  failwith "cmp_global_ctxt unimplemented"
+  List.fold_left (fun c -> function
+      | Ast.Gvdecl { elt={ name; init } } ->
+          let { elt=init_exp } = init in
+          let vt = match init_exp with
+          | CNull ty -> cmp_rty ty 
+          | CBool ty -> cmp_ty TBool
+          | CInt ty  -> cmp_ty TInt
+          | CStr ty  -> failwith "global string declarations not implemented yet"
+          | CArr _   -> failwith "global array declarations not implemented yet"
+          | _        -> failwith "global variable declarations cannot contain this type"
+          in
+          Ctxt.add c name (vt, Gid name)
+      | _ -> c
+    ) c p 
 
 (* Compile a function declaration in global context c. Return the LLVMlite cfg
    and a list of global declarations containing the string literals appearing
@@ -396,7 +410,16 @@ let cmp_fdecl (c:Ctxt.t) (f:Ast.fdecl node) : Ll.fdecl * (Ll.gid * Ll.gdecl) lis
 *)
 
 let rec cmp_gexp c (e:Ast.exp node) : Ll.gdecl * (Ll.gid * Ll.gdecl) list =
-  failwith "cmp_gexp not implemented"
+  let { elt=exp } = e in
+  match exp with
+  (* TODO: find out what the type of null is in ll*)
+  | CNull rty       ->  (Ptr Void, GNull), []
+  (* TODO: find out what the type of bools is in ll*)
+  | CBool b         ->  (I1, GInt (if b then 1L else 0L)), []
+  | CInt i          ->  (I64, GInt i), []
+  | CStr s          -> failwith "global expressions with strings not implemented yet"
+  | CArr (ty, exps) -> failwith "global expressions with arrays not implemented yet"
+  | _               -> failwith "global expressions cannot contain this type"
 
 (* Oat internals function context ------------------------------------------- *)
 let internals = [
