@@ -306,7 +306,34 @@ let oat_alloc_array (t:Ast.ty) (size:Ll.operand) : Ll.ty * operand * stream =
 *)
 
 let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
-  failwith "cmp_exp unimplemented"
+  let {elt=ex} = exp in
+  match exp with
+  | {elt=(CNull rty)}                       -> failwith "Uop exp unimplemented"
+  | {elt=(CBool b)}                         ->  let outputsym = gensym "" in
+                                                let intermsym = gensym "" in
+                                                let operand = Ll.Id outputsym in
+                                                Ll.Ptr Ll.I1
+                                                , operand
+                                                , lift
+                                                  [ outputsym, Alloca Ll.I1
+                                                  ; intermsym, Store (Ll.I1, Const (if b then 1L else 0L), operand)]
+  | {elt=(CInt i)}                          ->  let outputsym = gensym "" in
+                                                let intermsym = gensym "" in
+                                                let operand = Ll.Id outputsym in
+                                                Ll.Ptr Ll.I64
+                                                , operand
+                                                , lift 
+                                                  [ outputsym, Alloca Ll.I64
+                                                  ; intermsym, Store (Ll.I64, Const i, operand)]
+  | {elt=(CStr s)}                          -> failwith "CStr exp unimplemented"
+  | {elt=(CArr (ty, exp_nodes))}            -> failwith "CArr exp unimplemented"
+  | {elt=(NewArr (ty, exp_node))}           -> failwith "NewArr exp unimplemented"
+  | {elt=(Id id)}                           -> failwith "Id exp unimplemented"
+  | {elt=(Index (exp_node1, exp_node2))}    -> failwith "Index exp unimplemented"
+  | {elt=(Call (exp_node, exp_nodes))}      -> failwith "Call exp unimplemented"
+  | {elt=(Bop (op, exp_node1, exp_node2))}  -> failwith "Bop exp unimplemented"
+  | {elt=(Uop (unop, exp_node))}            -> failwith "Uop exp unimplemented"
+  
 
 (* Compile a statement in context c with return typ rt. Return a new context, 
    possibly extended with new local bindings, and the instruction stream
@@ -336,7 +363,18 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
  *)
 
 let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
-  failwith "cmp_stmt not implemented"
+  let { elt=statement } = stmt in
+  match statement with
+  | Ret exp_node_opt ->
+      match exp_node_opt with
+      | Some exp_node -> let ty, id, exp_stream = cmp_exp c exp_node in
+                         (* if(Ll.Ptr rt != ty ) then failwith "returntype doesn't match expression type"; *)
+                         let interm_sym = gensym "" in
+                         let load_opnd = lift [interm_sym, Load (ty, id)] in
+                         let calc_ret_val = exp_stream >@ load_opnd in
+                         c, calc_ret_val >@ [T (Ret (rt, Some (Ll.Id interm_sym)))]
+      | None          -> c, [T (Ret (rt, None))]
+  | _ -> failwith "this statement is not implemented yet"
 
 (* Compile a series of statements *)
 and cmp_block (c:Ctxt.t) (rt:Ll.ty) (stmts:Ast.block) : Ctxt.t * stream =
@@ -395,7 +433,23 @@ let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
  *)
 
 let cmp_fdecl (c:Ctxt.t) (f:Ast.fdecl node) : Ll.fdecl * (Ll.gid * Ll.gdecl) list =
-  failwith "cmp_fdecl not implemented"
+  let { elt={ frtyp=frtyp; fname=fname; args=args; body=body } } = f in
+  let arg_tys, uids = List.split @@ List.map (fun (ty, id) ->  
+                            let tmp_sym = gensym id in
+                            let cm_ty = cmp_ty ty in
+                            (*[ (tmp_sym, Alloca cm_ty)
+                            ; (Id (gensym id), Store (cm_ty, (Ll.Id id), tmp_sym))
+                            ]
+                            , tmp_sym,*) cm_ty, tmp_sym
+                          ) args in 
+  let ret_ty = cmp_ret_ty frtyp in
+  let ll_fty = arg_tys, ret_ty in
+  let (block_ctxt, block_stream) = cmp_block c ret_ty body in
+  let cfg, globl_decls = cfg_of_stream block_stream in
+  let ll_fdecl = { f_ty=ll_fty; f_param = uids; f_cfg=cfg } in
+  let ll_gdecl_list = [] in
+  (ll_fdecl, ll_gdecl_list)
+
 
 (* Compile a global initializer, returning the resulting LLVMlite global
    declaration, and a list of additional global declarations.
