@@ -343,8 +343,10 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   | {elt=(CStr s)}                          -> failwith "CStr exp unimplemented"
   | {elt=(CArr (ty, exp_nodes))}            -> failwith "CArr exp unimplemented"
   | {elt=(NewArr (ty, exp_node))}           -> failwith "NewArr exp unimplemented"
-  | {elt=(Id id)}                           ->  let ty, opnd = Ctxt.lookup id c in
-                                                ty , opnd , []
+  | {elt=(Id id)}                           ->  
+      let ty, opnd = Ctxt.lookup id c in
+      let dest = gensym "" in
+      ty , Ll.Id dest , lift [dest, Load (ty, opnd)]
   | {elt=(Index (exp_node1, exp_node2))}    -> failwith "Index exp unimplemented"
   | {elt=(Call (exp_node, exp_nodes))}      -> failwith "Call exp unimplemented"
   | {elt=(Bop (op, exp_node1, exp_node2))}  ->  
@@ -361,7 +363,13 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       let cmpld_uop, exp_type = cmp_uop outputsym exp_opnd unop in
       exp_type, operand, exp_stream >@ cmpld_uop
                                                
-  
+let cmp_lhs (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
+  let {elt=ex} = exp in
+  match ex with
+  | Id id -> 
+      let ty, opnd = Ctxt.lookup id c in
+      ty, opnd, []
+  | _ -> failwith "cmp_lhs unimplemented"
 
 (* Compile a statement in context c with return typ rt. Return a new context, 
    possibly extended with new local bindings, and the instruction stream
@@ -412,7 +420,7 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       match exp_node_lhs.elt with
       | Id id -> 
           (* TODO: type check? *)
-          let ty_lhs, opnd_lhs, stream_lhs = cmp_exp c exp_node_lhs in
+          let ty_lhs, opnd_lhs, stream_lhs = cmp_lhs c exp_node_lhs in
           let ty_rhs, opnd_rhs, stream_rhs = cmp_exp c exp_node_rhs in
           let stream_store = lift [(gensym "", Store (ty_lhs, opnd_rhs, opnd_lhs))] in
           c, stream_lhs >@ stream_rhs >@ stream_store
