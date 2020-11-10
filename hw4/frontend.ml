@@ -27,7 +27,6 @@ type stream = elt list
 let ( >@ ) x y = y @ x
 let ( >:: ) x y = y :: x
 let lift : (uid * insn) list -> stream = List.rev_map (fun (x,i) -> I (x,i))
-let hoist_local : stream -> stream = List.map (fun (I (x,i)) -> E (x,i))
 
 (* Build a CFG and collection of global variable definitions from a stream *)
 let cfg_of_stream (code:stream) : Ll.cfg * (Ll.gid * Ll.gdecl) list  =
@@ -432,11 +431,17 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       | _ -> failwith "lhs not assignable"
   )
   | SCall (expnode, exp_node_list) -> failwith "calling is not implemented yet"
-  | If (exp_node, if_branch, else_branch) ->  
-    (*let cmpld_if_branch = cmp_block c rt if_branch in
-    let cmpld_else_branch = cmp_block c rt else_branch in
-    let ty, exp_id, exp_stream = cmp_exp c exp_node in*)
-    failwith "IF is not implemented yet"
+  | If (test_exp, then_block, else_block) ->  
+      (* TODO: the context changes inside the blocks can be ignored, right? *)
+      let ty, opnd, test_stream = cmp_exp c test_exp in
+      let _, then_stream = cmp_block c rt then_block in
+      let _, else_stream = cmp_block c rt else_block in
+      let then_lbl, else_lbl, merge_lbl = gensym "then", gensym "else", gensym "merge" in
+      c,
+      test_stream >@ [T (Cbr (opnd, then_lbl, else_lbl))] 
+        >@ [L then_lbl] >@ then_stream >@ [T (Br merge_lbl)] 
+        >@ [L else_lbl] >@ else_stream >@ [T (Br merge_lbl)] 
+      >@ [L merge_lbl]
 
   | For (vdecl_list, exp_node_opt, stmt_node_opt, block) -> failwith "for loop is not implemented yet"
   | While (exp_node, block) -> failwith "While is not implemented yet"
