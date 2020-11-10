@@ -347,21 +347,19 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
                                                 ty , opnd , []
   | {elt=(Index (exp_node1, exp_node2))}    -> failwith "Index exp unimplemented"
   | {elt=(Call (exp_node, exp_nodes))}      -> failwith "Call exp unimplemented"
-  | {elt=(Bop (op, exp_node1, exp_node2))}  ->  let exp1_ty, exp1_opnd, exp1_stream = cmp_exp c exp_node1 in
-                                                let exp2_ty, exp2_opnd, exp2_stream = cmp_exp c exp_node2 in
-                                                let outputsym = gensym "" in
-                                                let operand = Ll.Id outputsym in
-                                                let cmpld_binop, exp_type = cmp_bin_op outputsym exp1_opnd exp2_opnd op in
-                                                exp_type
-                                                , operand
-                                                , exp1_stream >@ exp2_stream >@ cmpld_binop
-  | {elt=(Uop (unop, exp_node))}            ->  let exp_ty, exp_opnd, exp_stream = cmp_exp c exp_node in
-                                                let outputsym = gensym "" in
-                                                let operand = Ll.Id outputsym in
-                                                let cmpld_uop, exp_type = cmp_uop outputsym exp_opnd unop in
-                                                exp_type
-                                                , operand
-                                                , exp_stream >@ cmpld_uop
+  | {elt=(Bop (op, exp_node1, exp_node2))}  ->  
+      let exp1_ty, exp1_opnd, exp1_stream = cmp_exp c exp_node1 in
+      let exp2_ty, exp2_opnd, exp2_stream = cmp_exp c exp_node2 in
+      let outputsym = gensym "" in
+      let operand = Ll.Id outputsym in
+      let cmpld_binop, exp_type = cmp_bin_op outputsym exp1_opnd exp2_opnd op in
+      exp_type, operand, exp1_stream >@ exp2_stream >@ cmpld_binop
+  | {elt=(Uop (unop, exp_node))}            ->  
+      let exp_ty, exp_opnd, exp_stream = cmp_exp c exp_node in
+      let outputsym = gensym "" in
+      let operand = Ll.Id outputsym in
+      let cmpld_uop, exp_type = cmp_uop outputsym exp_opnd unop in
+      exp_type, operand, exp_stream >@ cmpld_uop
                                                
   
 
@@ -401,20 +399,22 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
                           c, exp_stream >@ [T (Ret (rt, Some id))]
       | None          ->  c, [T (Ret (rt, None))]
   )
-  | Ast.Decl vdecl    ->  let var_id, exp_node = vdecl in
-                          let ty, opnd, exp_stream = cmp_exp c exp_node in
-                          let uid = gensym var_id in
-                          let new_ctxt = Ctxt.add c var_id (ty, Ll.Id uid) in
-                          new_ctxt, 
-                          [E (uid, Alloca ty)]
-                          >@ exp_stream
-                          >@ lift [(gensym "", Store (ty, opnd, Ll.Id uid))]
+  | Ast.Decl vdecl ->  
+      let var_id, exp_node = vdecl in
+      let ty, opnd, exp_stream = cmp_exp c exp_node in
+      let uid = gensym var_id in
+      let new_ctxt = Ctxt.add c var_id (ty, Ll.Id uid) in
+      new_ctxt, 
+      [E (uid, Alloca ty)]
+      >@ exp_stream
+      >@ lift [(gensym "", Store (ty, opnd, Ll.Id uid))]
 | Assn (exp_node1, exp_node2)    -> failwith "assignment is not implemented yet"
 | SCall (expnode, exp_node_list) -> failwith "calling is not implemented yet"
-| If (exp_node, if_branch, else_branch) ->  (*let cmpld_if_branch = cmp_block c rt if_branch in
-                                            let cmpld_else_branch = cmp_block c rt else_branch in
-                                            let ty, exp_id, exp_stream = cmp_exp c exp_node in*)
-                                            failwith "IF is not implemented yet"
+| If (exp_node, if_branch, else_branch) ->  
+    (*let cmpld_if_branch = cmp_block c rt if_branch in
+    let cmpld_else_branch = cmp_block c rt else_branch in
+    let ty, exp_id, exp_stream = cmp_exp c exp_node in*)
+    failwith "IF is not implemented yet"
 
 | For (vdecl_list, exp_node_opt, stmt_node_opt, block) -> failwith "for loop is not implemented yet"
 | While (exp_node, block) -> failwith "While is not implemented yet"
