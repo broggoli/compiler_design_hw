@@ -305,7 +305,7 @@ let oat_alloc_array (t:Ast.ty) (size:Ll.operand) : Ll.ty * operand * stream =
      (CArr) and the (NewArr) expressions
 
 *)
-let cmp_uop (dest:string) (opnd:Ll.operand): Ast.unop -> stream * Ll.ty = function
+let cmp_uop (dest:uid) (opnd:Ll.operand): Ast.unop -> stream * Ll.ty = function
   | Neg     ->  lift [ dest, Binop (Ll.Sub, Ll.I64, Ll.Const 0L, opnd)] , Ll.I64
   | Lognot  ->  lift [dest, Icmp (Ll.Ne, Ll.I64, Ll.Const 0L, opnd)] , Ll.I64
   | Bitnot  ->  let intermediate = gensym "" in
@@ -313,7 +313,7 @@ let cmp_uop (dest:string) (opnd:Ll.operand): Ast.unop -> stream * Ll.ty = functi
                     ; dest, Binop (Ll.Sub, Ll.I64, Ll.Id intermediate, Ll.Const 1L)
                 ] , Ll.I64
   
-let cmp_bin_op (dest:string) (opnd1:Ll.operand) (opnd2:Ll.operand): Ast.binop -> stream * Ll.ty = 
+let cmp_bin_op (dest:uid) (opnd1:Ll.operand) (opnd2:Ll.operand): Ast.binop -> stream * Ll.ty = 
   let int_binop_stream (op:Ll.bop) : stream = lift [dest, Binop (op, Ll.I64, opnd1, opnd2)] in
   let int_cmp_stream (cnd:Ll.cnd) : stream  = lift [dest, Icmp (cnd, Ll.I64, opnd1, opnd2)] in
   function
@@ -338,22 +338,8 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   let {elt=ex} = exp in
   match exp with
   | {elt=(CNull rty)}                       ->  cmp_rty rty, Ll.Null, []
-  | {elt=(CBool b)}                         ->  let outputsym = gensym "" in
-                                                let intermsym = gensym "" in
-                                                let operand = Ll.Id outputsym in
-                                                Ll.Ptr Ll.I1
-                                                , operand
-                                                , lift
-                                                  [ outputsym, Alloca Ll.I1
-                                                  ; intermsym, Store (Ll.I1, Const (if b then 1L else 0L), operand)]
-  | {elt=(CInt i)}                          ->  let outputsym = gensym "" in
-                                                let intermsym = gensym "" in
-                                                let operand = Ll.Id outputsym in
-                                                Ll.Ptr Ll.I64
-                                                , operand
-                                                , lift 
-                                                  [ outputsym, Alloca Ll.I64
-                                                  ; intermsym, Store (Ll.I64, Const i, operand)]
+  | {elt=(CBool b)}                         ->  Ll.I1, Ll.Const (if b then 1L else 0L), lift []
+  | {elt=(CInt i)}                          ->  Ll.I64, Ll.Const i, lift []
   | {elt=(CStr s)}                          -> failwith "CStr exp unimplemented"
   | {elt=(CArr (ty, exp_nodes))}            -> failwith "CArr exp unimplemented"
   | {elt=(NewArr (ty, exp_node))}           -> failwith "NewArr exp unimplemented"
@@ -540,11 +526,11 @@ let rec cmp_gexp c (e:Ast.exp node) : Ll.gdecl * (Ll.gid * Ll.gdecl) list =
   let { elt=exp } = e in
   match exp with
   (* TODO: find out what the type of null is in ll*)
-  | CNull rty       ->  (Ptr Void, GNull), []
+  | CNull rty       ->  (cmp_ty (TRef rty), GNull), []
   (* TODO: find out what the type of bools is in ll*)
   | CBool b         ->  (I1, GInt (if b then 1L else 0L)), []
   | CInt i          ->  (I64, GInt i), []
-  | CStr s          -> failwith "global expressions with strings not implemented yet"
+  | CStr s          ->  (cmp_ty (TRef RString), GString s), []
   | CArr (ty, exps) -> failwith "global expressions with arrays not implemented yet"
   | _               -> failwith "global expressions cannot contain this type"
 
