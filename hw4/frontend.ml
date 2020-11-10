@@ -398,14 +398,7 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
   | Ret exp_node_opt ->(
       match exp_node_opt with
       | Some exp_node ->  let ty, id, exp_stream = cmp_exp c exp_node in
-                          (* if(Ll.Ptr rt != ty ) then failwith "returntype doesn't match expression type"; *)
-                          let load_opnd, interm_id = match ty with 
-                          | Ptr _ ->  let interm_sym = gensym "" in
-                                      lift [interm_sym, Load (ty, id)], Ll.Id interm_sym
-                          | _     ->  [], id
-                          in
-                          let calc_ret_val = exp_stream >@ load_opnd in
-                          c, calc_ret_val >@ [T (Ret (rt, Some interm_id))]
+                          c, exp_stream >@ [T (Ret (rt, Some id))]
       | None          ->  c, [T (Ret (rt, None))]
   )
   | Ast.Decl vdecl    ->  let var_name, exp_node = vdecl in
