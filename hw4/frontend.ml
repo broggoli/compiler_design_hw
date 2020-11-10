@@ -408,16 +408,27 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       [E (uid, Alloca ty)]
       >@ exp_stream
       >@ lift [(gensym "", Store (ty, opnd, Ll.Id uid))]
-| Assn (exp_node1, exp_node2)    -> failwith "assignment is not implemented yet"
-| SCall (expnode, exp_node_list) -> failwith "calling is not implemented yet"
-| If (exp_node, if_branch, else_branch) ->  
+  | Assn (exp_node_lhs, exp_node_rhs) -> ( 
+      match exp_node_lhs.elt with
+      | Id id -> 
+          (* TODO: type check? *)
+          let ty_lhs, opnd_lhs, stream_lhs = cmp_exp c exp_node_lhs in
+          let ty_rhs, opnd_rhs, stream_rhs = cmp_exp c exp_node_rhs in
+          let stream_store = lift [(gensym "", Store (ty_lhs, opnd_rhs, opnd_lhs))] in
+          c, stream_lhs >@ stream_rhs >@ stream_store
+      | Index (exp_arr, exp_ind) -> 
+          failwith "Index array assignment not implemented yet"
+      | _ -> failwith "lhs not assignable"
+  )
+  | SCall (expnode, exp_node_list) -> failwith "calling is not implemented yet"
+  | If (exp_node, if_branch, else_branch) ->  
     (*let cmpld_if_branch = cmp_block c rt if_branch in
     let cmpld_else_branch = cmp_block c rt else_branch in
     let ty, exp_id, exp_stream = cmp_exp c exp_node in*)
     failwith "IF is not implemented yet"
 
-| For (vdecl_list, exp_node_opt, stmt_node_opt, block) -> failwith "for loop is not implemented yet"
-| While (exp_node, block) -> failwith "While is not implemented yet"
+  | For (vdecl_list, exp_node_opt, stmt_node_opt, block) -> failwith "for loop is not implemented yet"
+  | While (exp_node, block) -> failwith "While is not implemented yet"
 
 (* Compile a series of statements *)
 and cmp_block (c:Ctxt.t) (rt:Ll.ty) (stmts:Ast.block) : Ctxt.t * stream =
