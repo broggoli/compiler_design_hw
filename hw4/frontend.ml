@@ -344,10 +344,11 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   | {elt=(CArr (ty, exp_nodes))}            -> failwith "CArr exp unimplemented"
   | {elt=(NewArr (ty, exp_node))}           -> failwith "NewArr exp unimplemented"
   | {elt=(Id id)}                           ->  
-      let ty, opnd = Ctxt.lookup id c in
+      (* Don't forget to dereference, since the variable is on the rhs *)
+      let (Ptr ty), opnd = Ctxt.lookup id c in
       (* Debug print Printf.printf "%s %s\n" (Llutil.string_of_ty ty) (Llutil.string_of_operand opnd);*)
       let dest = gensym "" in
-      ty , Ll.Id dest , lift [dest, Load (ty, opnd)]
+      ty , Ll.Id dest , lift [dest, Load ((Ptr ty), opnd)]
   | {elt=(Index (exp_node1, exp_node2))}    -> failwith "Index exp unimplemented"
   | {elt=(Call (exp_node, exp_nodes))}      -> failwith "Call exp unimplemented"
   | {elt=(Bop (op, exp_node1, exp_node2))}  ->  
