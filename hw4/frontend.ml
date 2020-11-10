@@ -453,7 +453,17 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
                           >@ hoist_local exp_stream
                           >@ [E (intermediate, Load (ty, exp_id))]
                           >@ [E (gensym "", Store (ty, Ll.Id intermediate, Ll.Id var_name))]
-| Assn (exp_node1, exp_node2)    -> failwith "assignment is not implemented yet"
+| Assn (exp_node1, exp_node2)    ->
+    let exp_ty1, exp_id1, exp_stream1 = cmp_exp c exp_node1 in
+    let exp_ty2, exp_id2, exp_stream2 = cmp_exp c exp_node2 in
+    let intermediate = gensym "" in
+    let stream = 
+      exp_stream2
+      >:: I (intermediate, Load (exp_ty2, exp_id2))
+      >@ exp_stream1
+      >:: I (gensym "", Store (exp_ty1, Ll.Id intermediate, exp_id1))
+    in
+    c, stream
 | SCall (expnode, exp_node_list) -> failwith "calling is not implemented yet"
 | If (exp_node, if_branch, else_branch) ->  (*let cmpld_if_branch = cmp_block c rt if_branch in
                                             let cmpld_else_branch = cmp_block c rt else_branch in
@@ -461,7 +471,23 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
                                             failwith "IF is not implemented yet"
 
 | For (vdecl_list, exp_node_opt, stmt_node_opt, block) -> failwith "for loop is not implemented yet"
-| While (exp_node, block) -> failwith "While is not implemented yet"
+| While (exp_node, block) -> 
+    let exp_ty, exp_id, exp_stream = cmp_exp c exp_node in
+    let new_ctxt, block_stream = cmp_block c rt block in
+    let top_lbl, body_lbl, end_lbl = gensym "top", gensym "body", gensym "end" in
+    let stream = []
+                  >:: L top_lbl 
+                  >@ exp_stream 
+                  >:: T (Cbr (exp_id, body_lbl, end_lbl)) 
+                  >:: L body_lbl
+                  >@ block_stream
+                  >:: T (Br top_lbl)
+                  >:: L end_lbl
+    in
+    new_ctxt, stream
+
+
+        
 
 (* Compile a series of statements *)
 and cmp_block (c:Ctxt.t) (rt:Ll.ty) (stmts:Ast.block) : Ctxt.t * stream =

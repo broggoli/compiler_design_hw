@@ -1,12 +1,18 @@
-; generated from: oatprograms/globals3.oat
+; generated from: oatprograms/easyrun2.oat
 target triple = "x86_64-unknown-linux"
-@arr = global void* null
-
-define i64 @program(i64 %_argc28, { i64, [0 x i8*] }* %_args29) {
-  %_30 = alloca i64
-  store i64 17, i64* %_30
-  %_32 = load i64, i64* %_30
-  ret i64 %_32
+define i64 @program(i64 %argc, { i64, [0 x i8*] }* %argv) {
+  %_argc8 = alloca i64
+  store i64 %argc, i64* %_argc8
+  %_argv9 = alloca { i64, [0 x i8*] }*
+  store { i64, [0 x i8*] }* %argv, { i64, [0 x i8*] }** %_argv9
+  %_12 = alloca i64
+  store i64 17, i64* %_12
+  %_14 = alloca i64
+  store i64 18, i64* %_14
+  %_17 = load i64, i64* %_12
+  %_18 = load i64, i64* %_14
+  %_16 = add i64 %_17, %_18
+  ret i64 %_16
 }
 
 
