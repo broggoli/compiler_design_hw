@@ -345,6 +345,7 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   | {elt=(NewArr (ty, exp_node))}           -> failwith "NewArr exp unimplemented"
   | {elt=(Id id)}                           ->  
       let ty, opnd = Ctxt.lookup id c in
+      (* Debug print Printf.printf "%s %s\n" (Llutil.string_of_ty ty) (Llutil.string_of_operand opnd);*)
       let dest = gensym "" in
       ty , Ll.Id dest , lift [dest, Load (ty, opnd)]
   | {elt=(Index (exp_node1, exp_node2))}    -> failwith "Index exp unimplemented"
@@ -403,15 +404,16 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
   match statement with
   | Ret exp_node_opt ->(
       match exp_node_opt with
-      | Some exp_node ->  let ty, id, exp_stream = cmp_exp c exp_node in
-                          c, exp_stream >@ [T (Ret (rt, Some id))]
+      | Some exp_node ->  
+          let ty, id, exp_stream = cmp_exp c exp_node in
+          c, exp_stream >@ [T (Ret (rt, Some id))]
       | None          ->  c, [T (Ret (rt, None))]
   )
   | Ast.Decl vdecl ->  
       let var_id, exp_node = vdecl in
       let ty, opnd, exp_stream = cmp_exp c exp_node in
       let uid = gensym var_id in
-      let new_ctxt = Ctxt.add c var_id (ty, Ll.Id uid) in
+      let new_ctxt = Ctxt.add c var_id ((Ptr ty), Ll.Id uid) in
       new_ctxt, 
       [E (uid, Alloca ty)]
       >@ exp_stream
