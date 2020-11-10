@@ -443,8 +443,16 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
         >@ [L else_lbl] >@ else_stream >@ [T (Br merge_lbl)] 
       >@ [L merge_lbl]
 
-  | For (vdecl_list, exp_node_opt, stmt_node_opt, block) -> failwith "for loop is not implemented yet"
-  | While (exp_node, block) -> failwith "While is not implemented yet"
+  | For (vdecl_list, exp_node_opt, stmt_node_opt, block) -> 
+      failwith "for loop is not implemented yet"
+  | While (test_exp, body_block) -> 
+      let ty, opnd, test_stream = cmp_exp c test_exp in
+      let _, body_stream = cmp_block c rt body_block in
+      let pre_lbl, body_lbl, post_lbl = gensym "pre", gensym "body", gensym "post" in
+      c,
+      [T (Br pre_lbl)] >@ [L pre_lbl] >@ test_stream >@ [T (Cbr (opnd, body_lbl, post_lbl))]
+        >@ [L body_lbl] >@ body_stream >@ [T (Br pre_lbl)]
+      >@ [L post_lbl]
 
 (* Compile a series of statements *)
 and cmp_block (c:Ctxt.t) (rt:Ll.ty) (stmts:Ast.block) : Ctxt.t * stream =
