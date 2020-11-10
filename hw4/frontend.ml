@@ -306,38 +306,16 @@ let oat_alloc_array (t:Ast.ty) (size:Ll.operand) : Ll.ty * operand * stream =
 
 *)
 let cmp_uop (dest:string) (opnd:Ll.operand): Ast.unop -> stream * Ll.ty = function
-  | Neg     ->  let loaded_opnd = gensym "" in
-                lift [ loaded_opnd, Load (Ll.Ptr I64, opnd)
-                    ; dest, Binop (Ll.Sub, Ll.I64, Ll.Const 0L, Ll.Id loaded_opnd)
-                ] , Ll.I64
-  | Lognot  ->  let loaded_opnd = gensym "" in
-                lift [ loaded_opnd, Load (Ll.Ptr I64, opnd)
-                    ; dest, Icmp (Ll.Ne, Ll.I64, Ll.Const 0L, Ll.Id loaded_opnd)
-                ] , Ll.I64
-  | Bitnot  ->  let loaded_opnd = gensym "" in
-                let intermediate = gensym "" in
-                lift [ loaded_opnd, Load (Ll.Ptr I64, opnd)
-                    ; intermediate, Binop (Ll.Sub, Ll.I64, Ll.Const 0L, Ll.Id loaded_opnd)
+  | Neg     ->  lift [ dest, Binop (Ll.Sub, Ll.I64, Ll.Const 0L, opnd)] , Ll.I64
+  | Lognot  ->  lift [dest, Icmp (Ll.Ne, Ll.I64, Ll.Const 0L, opnd)] , Ll.I64
+  | Bitnot  ->  let intermediate = gensym "" in
+                lift [intermediate, Binop (Ll.Sub, Ll.I64, Ll.Const 0L, opnd)
                     ; dest, Binop (Ll.Sub, Ll.I64, Ll.Id intermediate, Ll.Const 1L)
                 ] , Ll.I64
   
 let cmp_bin_op (dest:string) (opnd1:Ll.operand) (opnd2:Ll.operand): Ast.binop -> stream * Ll.ty = 
-  let int_binop_stream (op:Ll.bop) : stream = 
-    let loaded_opnd1 = gensym "" in
-    let loaded_opnd2 = gensym "" in
-    lift [ loaded_opnd1, Load (Ll.Ptr I64, opnd1)
-        ; loaded_opnd2, Load (Ll.Ptr I64, opnd2)
-        ; dest, Binop (op, Ll.I64, Ll.Id loaded_opnd1, Ll.Id loaded_opnd2)
-    ]
-  in
-  let int_cmp_stream (cnd:Ll.cnd) : stream = 
-    let loaded_opnd1 = gensym "" in
-    let loaded_opnd2 = gensym "" in
-    lift [ loaded_opnd1, Load (Ll.Ptr I64, opnd1)
-        ; loaded_opnd2, Load (Ll.Ptr I64, opnd2)
-        ; dest, Icmp (cnd, Ll.I64, Ll.Id loaded_opnd1, Ll.Id loaded_opnd2)
-    ]
-  in
+  let int_binop_stream (op:Ll.bop) : stream = lift [dest, Binop (op, Ll.I64, opnd1, opnd2)] in
+  let int_cmp_stream (cnd:Ll.cnd) : stream  = lift [dest, Icmp (cnd, Ll.I64, opnd1, opnd2)] in
   function
   | Add ->  int_binop_stream Ll.Add, Ll.I64
   | Sub ->  int_binop_stream Ll.Sub, Ll.I64
