@@ -401,15 +401,14 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
                           c, exp_stream >@ [T (Ret (rt, Some id))]
       | None          ->  c, [T (Ret (rt, None))]
   )
-  | Ast.Decl vdecl    ->  let var_name, exp_node = vdecl in
-                          let intermediate = gensym "" in
-                          let ty, exp_id, exp_stream = cmp_exp c exp_node in
-                          let new_ctxt = Ctxt.add c var_name (ty, Ll.Id var_name) in
+  | Ast.Decl vdecl    ->  let var_id, exp_node = vdecl in
+                          let ty, opnd, exp_stream = cmp_exp c exp_node in
+                          let uid = gensym var_id in
+                          let new_ctxt = Ctxt.add c var_id (ty, Ll.Id uid) in
                           new_ctxt, 
-                          [E (var_name, Alloca ty)]
-                          >@ hoist_local exp_stream
-                          >@ [E (intermediate, Load (ty, exp_id))]
-                          >@ [E (gensym "", Store (ty, Ll.Id intermediate, Ll.Id var_name))]
+                          [E (uid, Alloca ty)]
+                          >@ exp_stream
+                          >@ lift [(gensym "", Store (ty, opnd, Ll.Id uid))]
 | Assn (exp_node1, exp_node2)    -> failwith "assignment is not implemented yet"
 | SCall (expnode, exp_node_list) -> failwith "calling is not implemented yet"
 | If (exp_node, if_branch, else_branch) ->  (*let cmpld_if_branch = cmp_block c rt if_branch in
