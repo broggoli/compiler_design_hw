@@ -531,7 +531,10 @@ let rec cmp_gexp c (e:Ast.exp node) : Ll.gdecl * (Ll.gid * Ll.gdecl) list =
   | CBool b         ->  (I1, GInt (if b then 1L else 0L)), []
   | CInt i          ->  (I64, GInt i), []
   | CStr s          ->  (cmp_ty (TRef RString), GString s), []
-  | CArr (ty, exps) -> failwith "global expressions with arrays not implemented yet"
+  | CArr (ty, exps) ->  
+    let gdecls, tails = List.split @@ List.map (cmp_gexp c) exps in
+    let gdecls_with_id = List.map (fun gdcl -> (gensym "", gdcl)) gdecls in
+    (cmp_ty (TRef (RArray ty)), GArray gdecls), gdecls_with_id @ List.concat tails
   | _               -> failwith "global expressions cannot contain this type"
 
 (* Oat internals function context ------------------------------------------- *)
