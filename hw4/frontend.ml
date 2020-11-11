@@ -129,6 +129,10 @@ let typ_of_unop : Ast.unop -> Ast.ty * Ast.ty = function
   | Neg | Bitnot -> (TInt, TInt)
   | Lognot       -> (TBool, TBool)
 
+let elem_ty_of_array : Ll.ty -> Ll.ty = function
+  | Struct [_; Array (_, el_ty)] -> el_ty
+  | t -> failwith @@ "C: called elem_ty_of_array on a non-array" ^ Llutil.string_of_ty t
+
 (* Compiler Invariants
 
    The LLVM IR type of a variable (whether global or local) that stores an Oat
@@ -398,11 +402,11 @@ let cmp_lhs (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       let ty, opnd = Ctxt.lookup id c in
       ty, opnd, []
   | Index (arr_exp, index_exp) -> 
-      let arr_ty, arr_opnd, arr_stream = cmp_exp c arr_exp in
+      let (Ptr arr_ty), arr_opnd, arr_stream = cmp_exp c arr_exp in
       let index_ty, index_opnd, index_stream = cmp_exp c index_exp in
       let element_ref = gensym "element_ref" in
-      let element_ty = I64 in (* wrong, but works for now *)
-      let gep_stream = lift [element_ref, Gep (arr_ty, arr_opnd, [Const 0L; Const 1L; index_opnd])] in
+      let element_ty = elem_ty_of_array arr_ty in
+      let gep_stream = lift [element_ref, Gep (Ptr arr_ty, arr_opnd, [Const 0L; Const 1L; index_opnd])] in
       let stream = arr_stream >@ index_stream >@ gep_stream in
       Ptr element_ty, Ll.Id element_ref, stream
   | _ -> failwith "this expression can't be on the lhs"
