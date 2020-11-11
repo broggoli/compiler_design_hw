@@ -27,7 +27,6 @@ type stream = elt list
 let ( >@ ) x y = y @ x
 let ( >:: ) x y = y :: x
 let lift : (uid * insn) list -> stream = List.rev_map (fun (x,i) -> I (x,i))
-let hoist_local : stream -> stream = List.map (fun (I (x,i)) -> E (x,i))
 
 (* Build a CFG and collection of global variable definitions from a stream *)
 let cfg_of_stream (code:stream) : Ll.cfg * (Ll.gid * Ll.gdecl) list  =
@@ -129,6 +128,10 @@ let typ_of_binop : Ast.binop -> Ast.ty * Ast.ty * Ast.ty = function
 let typ_of_unop : Ast.unop -> Ast.ty * Ast.ty = function
   | Neg | Bitnot -> (TInt, TInt)
   | Lognot       -> (TBool, TBool)
+
+let elem_ty_of_array : Ll.ty -> Ll.ty = function
+  | Struct [_; Array (_, el_ty)] -> el_ty
+  | t -> failwith @@ "C: called elem_ty_of_array on a non-array" ^ Llutil.string_of_ty t
 
 (* Compiler Invariants
 
@@ -305,101 +308,103 @@ let oat_alloc_array (t:Ast.ty) (size:Ll.operand) : Ll.ty * operand * stream =
      (CArr) and the (NewArr) expressions
 
 *)
-let cmp_uop (dest:string) (opnd:Ll.operand): Ast.unop -> stream * Ll.ty = function
-  | Neg     ->  let loaded_opnd = gensym "" in
-                lift [ loaded_opnd, Load (Ll.Ptr I64, opnd)
-                    ; dest, Binop (Ll.Sub, Ll.I64, Ll.Const 0L, Ll.Id loaded_opnd)
-                ] , Ll.I64
-  | Lognot  ->  let loaded_opnd = gensym "" in
-                lift [ loaded_opnd, Load (Ll.Ptr I64, opnd)
-                    ; dest, Icmp (Ll.Ne, Ll.I64, Ll.Const 0L, Ll.Id loaded_opnd)
-                ] , Ll.I64
-  | Bitnot  ->  let loaded_opnd = gensym "" in
-                let intermediate = gensym "" in
-                lift [ loaded_opnd, Load (Ll.Ptr I64, opnd)
-                    ; intermediate, Binop (Ll.Sub, Ll.I64, Ll.Const 0L, Ll.Id loaded_opnd)
+let cmp_uop (dest:uid) (opnd:Ll.operand): Ast.unop -> stream * Ll.ty = function
+  | Neg     ->  lift [ dest, Binop (Ll.Sub, Ll.I64, Ll.Const 0L, opnd)] , Ll.I64
+  | Lognot  ->  lift [dest, Icmp (Ll.Ne, Ll.I64, Ll.Const 0L, opnd)] , Ll.I64
+  | Bitnot  ->  let intermediate = gensym "" in
+                lift [intermediate, Binop (Ll.Sub, Ll.I64, Ll.Const 0L, opnd)
                     ; dest, Binop (Ll.Sub, Ll.I64, Ll.Id intermediate, Ll.Const 1L)
                 ] , Ll.I64
   
-let cmp_bin_op (dest:string) (opnd1:Ll.operand) (opnd2:Ll.operand): Ast.binop -> stream * Ll.ty = 
-  let int_binop_stream (op:Ll.bop) : stream = 
-    let loaded_opnd1 = gensym "" in
-    let loaded_opnd2 = gensym "" in
-    lift [ loaded_opnd1, Load (Ll.Ptr I64, opnd1)
-        ; loaded_opnd2, Load (Ll.Ptr I64, opnd2)
-        ; dest, Binop (op, Ll.I64, Ll.Id loaded_opnd1, Ll.Id loaded_opnd2)
-    ]
-  in
-  let int_cmp_stream (cnd:Ll.cnd) : stream = 
-    let loaded_opnd1 = gensym "" in
-    let loaded_opnd2 = gensym "" in
-    lift [ loaded_opnd1, Load (Ll.Ptr I64, opnd1)
-        ; loaded_opnd2, Load (Ll.Ptr I64, opnd2)
-        ; dest, Icmp (cnd, Ll.I64, Ll.Id loaded_opnd1, Ll.Id loaded_opnd2)
-    ]
-  in
+let cmp_bin_op (dest:uid) (opnd1:Ll.operand) (opnd2:Ll.operand): Ast.binop -> stream * Ll.ty = 
+  let int_binop_stream (op:Ll.bop) (ty:Ll.ty): stream = lift [dest, Binop (op, ty, opnd1, opnd2)] in
+  let int_cmp_stream (cnd:Ll.cnd) : stream  = lift [dest, Icmp (cnd, Ll.I64, opnd1, opnd2)] in
   function
-  | Add ->  int_binop_stream Ll.Add, Ll.I64
-  | Sub ->  int_binop_stream Ll.Sub, Ll.I64
-  | Mul ->  int_binop_stream Ll.Mul, Ll.I64
+  | Add ->  int_binop_stream Ll.Add Ll.I64, Ll.I64
+  | Sub ->  int_binop_stream Ll.Sub Ll.I64, Ll.I64
+  | Mul ->  int_binop_stream Ll.Mul Ll.I64, Ll.I64
   | Eq  ->  int_cmp_stream Ll.Eq, Ll.I1
   | Neq ->  int_cmp_stream Ll.Ne, Ll.I1
   | Lt  ->  int_cmp_stream Ll.Slt, Ll.I1
   | Lte ->  int_cmp_stream Ll.Sle, Ll.I1
   | Gt  ->  int_cmp_stream Ll.Sgt, Ll.I1
   | Gte ->  int_cmp_stream Ll.Sge, Ll.I1
-  | And ->  int_binop_stream Ll.And, Ll.I64
-  | Or  ->  int_binop_stream Ll.Or, Ll.I64
-  | IAnd->  int_binop_stream Ll.And, Ll.I64
-  | IOr ->  int_binop_stream Ll.Or, Ll.I64
-  | Shl ->  int_binop_stream Ll.Shl, Ll.I64
-  | Shr ->  int_binop_stream Ll.Lshr, Ll.I64
-  | Sar ->  int_binop_stream Ll.Ashr, Ll.I64
+  | And ->  int_binop_stream Ll.And Ll.I1, Ll.I1
+  | Or  ->  int_binop_stream Ll.Or Ll.I1, Ll.I1
+  | IAnd->  int_binop_stream Ll.And Ll.I64, Ll.I64
+  | IOr ->  int_binop_stream Ll.Or Ll.I64, Ll.I64
+  | Shl ->  int_binop_stream Ll.Shl Ll.I64, Ll.I64
+  | Shr ->  int_binop_stream Ll.Lshr Ll.I64, Ll.I64
+  | Sar ->  int_binop_stream Ll.Ashr Ll.I64, Ll.I64
 
 let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   let {elt=ex} = exp in
   match exp with
   | {elt=(CNull rty)}                       ->  cmp_rty rty, Ll.Null, []
-  | {elt=(CBool b)}                         ->  let outputsym = gensym "" in
-                                                let intermsym = gensym "" in
-                                                let operand = Ll.Id outputsym in
-                                                Ll.Ptr Ll.I1
-                                                , operand
-                                                , lift
-                                                  [ outputsym, Alloca Ll.I1
-                                                  ; intermsym, Store (Ll.I1, Const (if b then 1L else 0L), operand)]
-  | {elt=(CInt i)}                          ->  let outputsym = gensym "" in
-                                                let intermsym = gensym "" in
-                                                let operand = Ll.Id outputsym in
-                                                Ll.Ptr Ll.I64
-                                                , operand
-                                                , lift 
-                                                  [ outputsym, Alloca Ll.I64
-                                                  ; intermsym, Store (Ll.I64, Const i, operand)]
+    (* TODO: find out whether this bool actually works*)
+  | {elt=(CBool b)}                         ->  Ll.I1, Ll.Const (if b then 1L else 0L), []
+  | {elt=(CInt i)}                          ->  Ll.I64, Ll.Const i, []
   | {elt=(CStr s)}                          -> failwith "CStr exp unimplemented"
-  | {elt=(CArr (ty, exp_nodes))}            -> failwith "CArr exp unimplemented"
-  | {elt=(NewArr (ty, exp_node))}           -> failwith "NewArr exp unimplemented"
-  | {elt=(Id id)}                           ->  let ty, opnd = Ctxt.lookup id c in
-                                                ty , opnd , []
-  | {elt=(Index (exp_node1, exp_node2))}    -> failwith "Index exp unimplemented"
+  | {elt=(CArr (ty, fillers))}              -> 
+      (*let size_ty, size_opnd, size_stream = cmp_exp c size in *)
+      let size = Const (Int64.of_int @@ List.length fillers) in
+      let arr_ty, arr_ref_opnd, arr_alloc_stream = oat_alloc_array ty size in
+      let initialze_arr = List.concat @@ List.mapi (fun index exp_node -> 
+          let exp_ty, exp_opnd, exp_stream = cmp_exp c exp_node in
+          let index_opnd = Const (Int64.of_int index) in
+          let interm = gensym "" in
+          exp_stream >@
+          lift [ interm, Gep (arr_ty, arr_ref_opnd, [Const 0L; Const 1L; index_opnd])
+          ; gensym "", Store (exp_ty, exp_opnd, (Ll.Id interm))]
+        ) fillers
+      in
+      arr_ty, arr_ref_opnd, arr_alloc_stream >@ initialze_arr
+  | {elt=(NewArr (ty, size))}           -> 
+      let size_ty, size_opnd, size_stream = cmp_exp c size in 
+      let arr_ty, arr_ref_opnd, arr_alloc_stream = oat_alloc_array ty size_opnd in
+      arr_ty, arr_ref_opnd, size_stream >@ arr_alloc_stream
+  | {elt=(Id id)}                           ->  
+      (* Don't forget to dereference, since the variable is on the rhs *)
+      let (Ptr ty), opnd = Ctxt.lookup id c in
+      let dest = gensym "" in
+      ty , Ll.Id dest , lift [dest, Load ((Ptr ty), opnd)]
+  | {elt=(Index (arr_exp, index_exp))}    -> 
+      (* Don't forget to dereference, since the index is on the rhs *)
+      let element_val = gensym "element_val" in
+      let (Ptr element_ty), (Ll.Id element_ref), reference_stream = cmp_lhs c exp in
+      let dereference_stream = lift [element_val, Load (Ptr element_ty, Ll.Id element_ref)] in
+      let stream = reference_stream >@ dereference_stream in
+      element_ty, Ll.Id element_val, stream
   | {elt=(Call (exp_node, exp_nodes))}      -> failwith "Call exp unimplemented"
-  | {elt=(Bop (op, exp_node1, exp_node2))}  ->  let exp1_ty, exp1_opnd, exp1_stream = cmp_exp c exp_node1 in
-                                                let exp2_ty, exp2_opnd, exp2_stream = cmp_exp c exp_node2 in
-                                                let outputsym = gensym "" in
-                                                let operand = Ll.Id outputsym in
-                                                let cmpld_binop, exp_type = cmp_bin_op outputsym exp1_opnd exp2_opnd op in
-                                                exp_type
-                                                , operand
-                                                , exp1_stream >@ exp2_stream >@ cmpld_binop
-  | {elt=(Uop (unop, exp_node))}            ->  let exp_ty, exp_opnd, exp_stream = cmp_exp c exp_node in
-                                                let outputsym = gensym "" in
-                                                let operand = Ll.Id outputsym in
-                                                let cmpld_uop, exp_type = cmp_uop outputsym exp_opnd unop in
-                                                exp_type
-                                                , operand
-                                                , exp_stream >@ cmpld_uop
+  | {elt=(Bop (op, exp_node1, exp_node2))}  ->  
+      let exp1_ty, exp1_opnd, exp1_stream = cmp_exp c exp_node1 in
+      let exp2_ty, exp2_opnd, exp2_stream = cmp_exp c exp_node2 in
+      let outputsym = gensym "" in
+      let operand = Ll.Id outputsym in
+      let cmpld_binop, exp_type = cmp_bin_op outputsym exp1_opnd exp2_opnd op in
+      exp_type, operand, exp1_stream >@ exp2_stream >@ cmpld_binop
+  | {elt=(Uop (unop, exp_node))}            ->  
+      let exp_ty, exp_opnd, exp_stream = cmp_exp c exp_node in
+      let outputsym = gensym "" in
+      let operand = Ll.Id outputsym in
+      let cmpld_uop, exp_type = cmp_uop outputsym exp_opnd unop in
+      exp_type, operand, exp_stream >@ cmpld_uop
                                                
-  
+and cmp_lhs (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
+  let {elt=ex} = exp in
+  match ex with
+  | Id id -> 
+      let ty, opnd = Ctxt.lookup id c in
+      ty, opnd, []
+  | Index (arr_exp, index_exp) -> 
+      let (Ptr arr_ty), arr_opnd, arr_stream = cmp_exp c arr_exp in
+      let index_ty, index_opnd, index_stream = cmp_exp c index_exp in
+      let element_ref = gensym "element_ref" in
+      let element_ty = elem_ty_of_array arr_ty in
+      let gep_stream = lift [element_ref, Gep (Ptr arr_ty, arr_opnd, [Const 0L; Const 1L; index_opnd])] in
+      let stream = arr_stream >@ index_stream >@ gep_stream in
+      Ptr element_ty, Ll.Id element_ref, stream
+  | _ -> failwith "this expression can't be on the lhs"
 
 (* Compile a statement in context c with return typ rt. Return a new context, 
    possibly extended with new local bindings, and the instruction stream
@@ -417,6 +422,7 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
      declarations
    
    - you can avoid some work by translating For loops to the corresponding
+
      While loop, building the AST and recursively calling cmp_stmt
 
    - you might find it helpful to reuse the code you wrote for the Call
@@ -427,23 +433,17 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
      pointer, you just need to store to it!
 
  *)
-
 let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
   let { elt=statement } = stmt in
   match statement with
   | Ret exp_node_opt ->(
       match exp_node_opt with
-      | Some exp_node ->  let ty, id, exp_stream = cmp_exp c exp_node in
-                          (* if(Ll.Ptr rt != ty ) then failwith "returntype doesn't match expression type"; *)
-                          let load_opnd, interm_id = match ty with 
-                          | Ptr _ ->  let interm_sym = gensym "" in
-                                      lift [interm_sym, Load (ty, id)], Ll.Id interm_sym
-                          | _     ->  [], id
-                          in
-                          let calc_ret_val = exp_stream >@ load_opnd in
-                          c, calc_ret_val >@ [T (Ret (rt, Some interm_id))]
+      | Some exp_node ->  
+          let ty, id, exp_stream = cmp_exp c exp_node in
+          c, exp_stream >@ [T (Ret (rt, Some id))]
       | None          ->  c, [T (Ret (rt, None))]
   )
+<<<<<<< HEAD
   | Ast.Decl vdecl    ->  let var_name, exp_node = vdecl in
                           let intermediate = gensym "" in
                           let ty, exp_id, exp_stream = cmp_exp c exp_node in
@@ -488,6 +488,57 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
 
 
         
+=======
+  | Ast.Decl vdecl ->  
+      let var_id, exp_node = vdecl in
+      let ty, opnd, exp_stream = cmp_exp c exp_node in
+      let uid = gensym var_id in
+      let new_ctxt = Ctxt.add c var_id ((Ptr ty), Ll.Id uid) in
+      new_ctxt, 
+      [E (uid, Alloca ty)]
+      >@ exp_stream
+      >@ lift [(gensym "", Store (ty, opnd, Ll.Id uid))]
+  | Assn (exp_node_lhs, exp_node_rhs) ->
+      (* TODO: type check? *)
+      let lhs_ty, lhs_opnd, lhs_stream = cmp_lhs c exp_node_lhs in
+      let rhs_ty, rhs_opnd, rhs_stream = cmp_exp c exp_node_rhs in
+      let store_stream = lift [(gensym "", Store (rhs_ty, rhs_opnd, lhs_opnd))] in
+      c, lhs_stream >@ rhs_stream >@ store_stream
+  | SCall (expnode, exp_node_list) -> failwith "calling is not implemented yet"
+  | If (test_exp, then_block, else_block) ->  
+      (* TODO: the context changes inside the blocks can be ignored, right? *)
+      let ty, opnd, test_stream = cmp_exp c test_exp in
+      let _, then_stream = cmp_block c rt then_block in
+      let _, else_stream = cmp_block c rt else_block in
+      let then_lbl, else_lbl, merge_lbl = gensym "then", gensym "else", gensym "merge" in
+      c,
+      test_stream >:: T (Cbr (opnd, then_lbl, else_lbl))
+        >:: L then_lbl >@ then_stream >:: T (Br merge_lbl)
+        >:: L else_lbl >@ else_stream >:: T (Br merge_lbl)
+      >:: L merge_lbl
+
+  | For (vdecl_list, test_opt, inc_opt, for_body_block) -> 
+      let vdecl_block = List.map (fun vd -> no_loc (Decl vd)) vdecl_list in
+      let body_ctxt, init_stream = cmp_block c rt vdecl_block in
+      let test_exp = match test_opt with
+        | Some exp_node -> exp_node
+        | None -> no_loc (CBool true)
+      in
+      let while_body_block = match inc_opt with
+        | Some stmt_node -> for_body_block @ [stmt_node]
+        | None -> for_body_block
+      in
+      let _, stream = cmp_stmt body_ctxt rt (no_loc (While (test_exp, while_body_block))) in
+      c, init_stream >@ stream
+  | While (test_exp, body_block) -> 
+      let ty, opnd, test_stream = cmp_exp c test_exp in
+      let new_ctxt, body_stream = cmp_block c rt body_block in
+      let pre_lbl, body_lbl, post_lbl = gensym "pre", gensym "body", gensym "post" in
+      new_ctxt,
+      [T (Br pre_lbl)] >@ [L pre_lbl] >@ test_stream >@ [T (Cbr (opnd, body_lbl, post_lbl))]
+        >@ [L body_lbl] >@ body_stream >@ [T (Br pre_lbl)]
+      >@ [L post_lbl]
+>>>>>>> bibin
 
 (* Compile a series of statements *)
 and cmp_block (c:Ctxt.t) (rt:Ll.ty) (stmts:Ast.block) : Ctxt.t * stream =
@@ -529,7 +580,7 @@ let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
           | CArr _   -> failwith "global array declarations not implemented yet"
           | _        -> failwith "global variable declarations cannot contain this type"
           in
-          Ctxt.add c name (vt, Gid name)
+          Ctxt.add c name (Ptr vt, Gid name)
       | _ -> c
     ) c p 
 
@@ -588,12 +639,15 @@ let rec cmp_gexp c (e:Ast.exp node) : Ll.gdecl * (Ll.gid * Ll.gdecl) list =
   let { elt=exp } = e in
   match exp with
   (* TODO: find out what the type of null is in ll*)
-  | CNull rty       ->  (Ptr Void, GNull), []
+  | CNull rty       ->  (cmp_ty (TRef rty), GNull), []
   (* TODO: find out what the type of bools is in ll*)
   | CBool b         ->  (I1, GInt (if b then 1L else 0L)), []
   | CInt i          ->  (I64, GInt i), []
-  | CStr s          -> failwith "global expressions with strings not implemented yet"
-  | CArr (ty, exps) -> failwith "global expressions with arrays not implemented yet"
+  | CStr s          ->  (cmp_ty (TRef RString), GString s), []
+  | CArr (ty, exps) ->  
+    let gdecls, tails = List.split @@ List.map (cmp_gexp c) exps in
+    let gdecls_with_id = List.map (fun gdcl -> (gensym "", gdcl)) gdecls in
+    (cmp_ty (TRef (RArray ty)), GArray gdecls), gdecls_with_id @ List.concat tails
   | _               -> failwith "global expressions cannot contain this type"
 
 (* Oat internals function context ------------------------------------------- *)
