@@ -347,7 +347,7 @@ let cmp_bin_op (dest:uid) (opnd1:Ll.operand) (opnd2:Ll.operand): Ast.binop -> st
 let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   let {elt=ex} = exp in
   match exp with
-  | {elt=(CNull rty)}                       ->  cmp_rty rty, Ll.Null, []
+  | {elt=(CNull rty)}                       ->  cmp_ty (TRef rty), Ll.Null, []
     (* TODO: find out whether this bool actually works*)
   | {elt=(CBool b)}                         ->  Ll.I1, Ll.Const (if b then 1L else 0L), []
   | {elt=(CInt i)}                          ->  Ll.I64, Ll.Const i, []
