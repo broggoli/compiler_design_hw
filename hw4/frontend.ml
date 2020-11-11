@@ -370,9 +370,9 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       let arr_ty, arr_opnd, arr_stream = cmp_exp c arr_exp in
       let index_ty, index_opnd, index_stream = cmp_exp c index_exp in
       let element_ref, element_val = gensym "element_ref", gensym "element_val" in
-      let element_ty = Ptr I64 in (* wrong, but works for now *)
+      let element_ty = I64 in (* wrong, but works for now *)
       let gep_stream = lift [element_ref, Gep (arr_ty, arr_opnd, [Const 0L; Const 1L; index_opnd])] in
-      let dereference_stream = lift[element_val, Load (element_ty, Ll.Id element_ref)] in
+      let dereference_stream = lift [element_val, Load (Ptr element_ty, Ll.Id element_ref)] in
       let stream = arr_stream >@ index_stream >@ gep_stream >@ dereference_stream in
       element_ty, Ll.Id element_val, stream
   | {elt=(Call (exp_node, exp_nodes))}      -> failwith "Call exp unimplemented"
