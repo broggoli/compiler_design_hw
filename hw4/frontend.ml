@@ -533,7 +533,7 @@ let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
           | CArr _   -> failwith "global array declarations not implemented yet"
           | _        -> failwith "global variable declarations cannot contain this type"
           in
-          Ctxt.add c name (vt, Gid name)
+          Ctxt.add c name (Ptr vt, Gid name)
       | _ -> c
     ) c p 
 
