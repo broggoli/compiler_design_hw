@@ -539,7 +539,7 @@ let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
           | CBool ty -> cmp_ty TBool
           | CInt ty  -> cmp_ty TInt
           | CStr ty  -> failwith "global string declarations not implemented yet"
-          | CArr _   -> failwith "global array declarations not implemented yet"
+          | CArr (ty, _) -> cmp_ty (TRef (RArray ty))
           | _        -> failwith "global variable declarations cannot contain this type"
           in
           Ctxt.add c name (Ptr vt, Gid name)
@@ -607,9 +607,18 @@ let rec cmp_gexp c (e:Ast.exp node) : Ll.gdecl * (Ll.gid * Ll.gdecl) list =
   | CInt i          ->  (I64, GInt i), []
   | CStr s          ->  (cmp_ty (TRef RString), GString s), []
   | CArr (ty, exps) ->  
+
+    let n = List.length exps in
     let gdecls, tails = List.split @@ List.map (cmp_gexp c) exps in
-    let gdecls_with_id = List.map (fun gdcl -> (gensym "", gdcl)) gdecls in
-    (cmp_ty (TRef (RArray ty)), GArray gdecls), gdecls_with_id @ List.concat tails
+    (*let gdecls_with_id = List.map (fun gdcl -> (gensym "", gdcl)) gdecls in*)
+
+    let arr_ptr_ty = cmp_ty (TRef (RArray ty)) in
+    let arr_n_ty = Struct [I64; Array(n, cmp_ty ty)] in (* TODO: seems hacky*)
+    let g_arr_gid = gensym "global_arr" in
+    let g_arr = GStruct [(I64, GInt (Int64.of_int n)); (Array (n, cmp_ty ty), GArray gdecls)] in
+    let gbitcast = GBitcast (Ptr arr_n_ty, GGid g_arr_gid, arr_ptr_ty) in
+
+    (arr_ptr_ty, gbitcast), (g_arr_gid, (arr_n_ty, g_arr)) :: List.concat tails
   | _               -> failwith "global expressions cannot contain this type"
 
 (* Oat internals function context ------------------------------------------- *)
