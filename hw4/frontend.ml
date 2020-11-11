@@ -536,7 +536,7 @@ let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
       | Ast.Gvdecl { elt={ name; init } } ->
           let { elt=init_exp } = init in
           let vt = match init_exp with
-          | CNull ty -> cmp_rty ty 
+          | CNull ty -> cmp_ty (TRef ty)
           | CBool ty -> cmp_ty TBool
           | CInt ty  -> cmp_ty TInt
           | CStr ty  -> failwith "global string declarations not implemented yet"
