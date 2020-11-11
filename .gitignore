@@ -1,3 +1,5 @@
 *.zip
 _build
 main.native
+a.out
+output/*

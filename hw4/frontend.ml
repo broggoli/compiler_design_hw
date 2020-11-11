@@ -129,6 +129,10 @@ let typ_of_unop : Ast.unop -> Ast.ty * Ast.ty = function
   | Neg | Bitnot -> (TInt, TInt)
   | Lognot       -> (TBool, TBool)
 
+let elem_ty_of_array : Ll.ty -> Ll.ty = function
+  | Struct [_; Array (_, el_ty)] -> el_ty
+  | t -> failwith @@ "C: called elem_ty_of_array on a non-array" ^ Llutil.string_of_ty t
+
 (* Compiler Invariants
 
    The LLVM IR type of a variable (whether global or local) that stores an Oat
@@ -369,20 +373,15 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   | {elt=(Id id)}                           ->  
       (* Don't forget to dereference, since the variable is on the rhs *)
       let (Ptr ty), opnd = Ctxt.lookup id c in
-      (* Debug print Printf.printf "%s %s\n" (Llutil.string_of_ty ty) (Llutil.string_of_operand opnd);*)
       let dest = gensym "" in
       ty , Ll.Id dest , lift [dest, Load ((Ptr ty), opnd)]
-  | {elt=(Index (exp_node, index))}    -> 
-      let exp_ty, exp_opnd, exp_stream = cmp_exp c exp_node in
-      let index_ty, index_opnd, index_stream = cmp_exp c index in
-      let outputsym = gensym "" in
-      let operand = Ll.Id outputsym in
-      let gep = 
-        lift [outputsym, Gep (exp_ty, exp_opnd, [Const 0L; Const 1L; index_opnd])
-        ]
-      in
-      let stream = exp_stream >@ index_stream >@ gep in
-      exp_ty, operand, stream
+  | {elt=(Index (arr_exp, index_exp))}    -> 
+      (* Don't forget to dereference, since the index is on the rhs *)
+      let element_val = gensym "element_val" in
+      let (Ptr element_ty), (Ll.Id element_ref), reference_stream = cmp_lhs c exp in
+      let dereference_stream = lift [element_val, Load (Ptr element_ty, Ll.Id element_ref)] in
+      let stream = reference_stream >@ dereference_stream in
+      element_ty, Ll.Id element_val, stream
   | {elt=(Call (exp_node, exp_nodes))}      -> failwith "Call exp unimplemented"
   | {elt=(Bop (op, exp_node1, exp_node2))}  ->  
       let exp1_ty, exp1_opnd, exp1_stream = cmp_exp c exp_node1 in
@@ -399,13 +398,21 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       let cmpld_uop, exp_type = cmp_uop outputsym exp_opnd' unop in
       exp_type, operand, exp_stream >@ exp_stream' >@ cmpld_uop
                                                
-let cmp_lhs (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
+and cmp_lhs (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   let {elt=ex} = exp in
   match ex with
   | Id id -> 
       let ty, opnd = Ctxt.lookup id c in
       ty, opnd, []
-  | _ -> failwith "cmp_lhs unimplemented"
+  | Index (arr_exp, index_exp) -> 
+      let (Ptr arr_ty), arr_opnd, arr_stream = cmp_exp c arr_exp in
+      let index_ty, index_opnd, index_stream = cmp_exp c index_exp in
+      let element_ref = gensym "element_ref" in
+      let element_ty = elem_ty_of_array arr_ty in
+      let gep_stream = lift [element_ref, Gep (Ptr arr_ty, arr_opnd, [Const 0L; Const 1L; index_opnd])] in
+      let stream = arr_stream >@ index_stream >@ gep_stream in
+      Ptr element_ty, Ll.Id element_ref, stream
+  | _ -> failwith "this expression can't be on the lhs"
 
 (* Compile a statement in context c with return typ rt. Return a new context, 
    possibly extended with new local bindings, and the instruction stream
@@ -454,18 +461,12 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       [E (uid, Alloca ty)]
       >@ exp_stream
       >@ lift [(gensym "", Store (ty, opnd, Ll.Id uid))]
-  | Assn (exp_node_lhs, exp_node_rhs) -> ( 
-      match exp_node_lhs.elt with
-      | Id id -> 
-          (* TODO: type check? *)
-          let ty_lhs, opnd_lhs, stream_lhs = cmp_lhs c exp_node_lhs in
-          let ty_rhs, opnd_rhs, stream_rhs = cmp_exp c exp_node_rhs in
-          let stream_store = lift [(gensym "", Store (ty_rhs, opnd_rhs, opnd_lhs))] in
-          c, stream_lhs >@ stream_rhs >@ stream_store
-      | Index (exp_arr, exp_ind) -> 
-          failwith "Index array assignment not implemented yet"
-      | _ -> failwith "lhs not assignable"
-  )
+  | Assn (exp_node_lhs, exp_node_rhs) ->
+      (* TODO: type check? *)
+      let lhs_ty, lhs_opnd, lhs_stream = cmp_lhs c exp_node_lhs in
+      let rhs_ty, rhs_opnd, rhs_stream = cmp_exp c exp_node_rhs in
+      let store_stream = lift [(gensym "", Store (rhs_ty, rhs_opnd, lhs_opnd))] in
+      c, lhs_stream >@ rhs_stream >@ store_stream
   | SCall (expnode, exp_node_list) -> failwith "calling is not implemented yet"
   | If (test_exp, then_block, else_block) ->  
       (* TODO: the context changes inside the blocks can be ignored, right? *)
@@ -541,7 +542,7 @@ let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
           | CArr _   -> failwith "global array declarations not implemented yet"
           | _        -> failwith "global variable declarations cannot contain this type"
           in
-          Ctxt.add c name (vt, Gid name)
+          Ctxt.add c name (Ptr vt, Gid name)
       | _ -> c
     ) c p 
 
