@@ -424,7 +424,7 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
           (* TODO: type check? *)
           let ty_lhs, opnd_lhs, stream_lhs = cmp_lhs c exp_node_lhs in
           let ty_rhs, opnd_rhs, stream_rhs = cmp_exp c exp_node_rhs in
-          let stream_store = lift [(gensym "", Store (ty_lhs, opnd_rhs, opnd_lhs))] in
+          let stream_store = lift [(gensym "", Store (ty_rhs, opnd_rhs, opnd_lhs))] in
           c, stream_lhs >@ stream_rhs >@ stream_store
       | Index (exp_arr, exp_ind) -> 
           failwith "Index array assignment not implemented yet"
