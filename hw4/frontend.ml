@@ -366,7 +366,7 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   | {elt=(Id id)}                           ->  
       (* Don't forget to dereference, since the variable is on the rhs *)
       let (Ptr ty), opnd = Ctxt.lookup id c in
-      let dest = gensym "" in
+      let dest = gensym "id_dest" in
       ty , Ll.Id dest , lift [dest, Load ((Ptr ty), opnd)]
   | {elt=(Index (arr_exp, index_exp))}    -> 
       (* Don't forget to dereference, since the index is on the rhs *)
@@ -375,7 +375,17 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       let dereference_stream = lift [element_val, Load (Ptr element_ty, Ll.Id element_ref)] in
       let stream = reference_stream >@ dereference_stream in
       element_ty, Ll.Id element_val, stream
-  | {elt=(Call (exp_node, exp_nodes))}      -> failwith "Call exp unimplemented"
+  | {elt=(Call (exp_node, arg_exps))}      ->
+      let fun_ty, fun_opnd, exp_stream = cmp_exp c exp_node in
+      let args, arg_streams = List.split @@ List.rev_map (fun arg_exp -> 
+        let arg_exp_ty, arg_exp_opnd, arg_exp_stream = cmp_exp c arg_exp in
+        (arg_exp_ty, arg_exp_opnd), arg_exp_stream
+      ) arg_exps 
+      in
+      let Fun (_, ret_type) = fun_ty in
+      let return_opnd = gensym "function_return" in
+      let stream = exp_stream >@ List.concat arg_streams >@ lift [return_opnd, Ll.Call (ret_type, fun_opnd, args)] in
+      ret_type, Ll.Id return_opnd, stream
   | {elt=(Bop (op, exp_node1, exp_node2))}  ->  
       let exp1_ty, exp1_opnd, exp1_stream = cmp_exp c exp_node1 in
       let exp2_ty, exp2_opnd, exp2_stream = cmp_exp c exp_node2 in
@@ -443,52 +453,6 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
           c, exp_stream >@ [T (Ret (rt, Some id))]
       | None          ->  c, [T (Ret (rt, None))]
   )
-<<<<<<< HEAD
-  | Ast.Decl vdecl    ->  let var_name, exp_node = vdecl in
-                          let intermediate = gensym "" in
-                          let ty, exp_id, exp_stream = cmp_exp c exp_node in
-                          let new_ctxt = Ctxt.add c var_name (ty, Ll.Id var_name) in
-                          new_ctxt, 
-                          [E (var_name, Alloca ty)]
-                          >@ hoist_local exp_stream
-                          >@ [E (intermediate, Load (ty, exp_id))]
-                          >@ [E (gensym "", Store (ty, Ll.Id intermediate, Ll.Id var_name))]
-| Assn (exp_node1, exp_node2)    ->
-    let exp_ty1, exp_id1, exp_stream1 = cmp_exp c exp_node1 in
-    let exp_ty2, exp_id2, exp_stream2 = cmp_exp c exp_node2 in
-    let intermediate = gensym "" in
-    let stream = 
-      exp_stream2
-      >:: I (intermediate, Load (exp_ty2, exp_id2))
-      >@ exp_stream1
-      >:: I (gensym "", Store (exp_ty1, Ll.Id intermediate, exp_id1))
-    in
-    c, stream
-| SCall (expnode, exp_node_list) -> failwith "calling is not implemented yet"
-| If (exp_node, if_branch, else_branch) ->  (*let cmpld_if_branch = cmp_block c rt if_branch in
-                                            let cmpld_else_branch = cmp_block c rt else_branch in
-                                            let ty, exp_id, exp_stream = cmp_exp c exp_node in*)
-                                            failwith "IF is not implemented yet"
-
-| For (vdecl_list, exp_node_opt, stmt_node_opt, block) -> failwith "for loop is not implemented yet"
-| While (exp_node, block) -> 
-    let exp_ty, exp_id, exp_stream = cmp_exp c exp_node in
-    let new_ctxt, block_stream = cmp_block c rt block in
-    let top_lbl, body_lbl, end_lbl = gensym "top", gensym "body", gensym "end" in
-    let stream = []
-                  >:: L top_lbl 
-                  >@ exp_stream 
-                  >:: T (Cbr (exp_id, body_lbl, end_lbl)) 
-                  >:: L body_lbl
-                  >@ block_stream
-                  >:: T (Br top_lbl)
-                  >:: L end_lbl
-    in
-    new_ctxt, stream
-
-
-        
-=======
   | Ast.Decl vdecl ->  
       let var_id, exp_node = vdecl in
       let ty, opnd, exp_stream = cmp_exp c exp_node in
@@ -506,7 +470,6 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       c, lhs_stream >@ rhs_stream >@ store_stream
   | SCall (expnode, exp_node_list) -> failwith "calling is not implemented yet"
   | If (test_exp, then_block, else_block) ->  
-      (* TODO: the context changes inside the blocks can be ignored, right? *)
       let ty, opnd, test_stream = cmp_exp c test_exp in
       let _, then_stream = cmp_block c rt then_block in
       let _, else_stream = cmp_block c rt else_block in
@@ -532,13 +495,12 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       c, init_stream >@ stream
   | While (test_exp, body_block) -> 
       let ty, opnd, test_stream = cmp_exp c test_exp in
-      let new_ctxt, body_stream = cmp_block c rt body_block in
+      let _, body_stream = cmp_block c rt body_block in
       let pre_lbl, body_lbl, post_lbl = gensym "pre", gensym "body", gensym "post" in
-      new_ctxt,
+      c,
       [T (Br pre_lbl)] >@ [L pre_lbl] >@ test_stream >@ [T (Cbr (opnd, body_lbl, post_lbl))]
         >@ [L body_lbl] >@ body_stream >@ [T (Br pre_lbl)]
       >@ [L post_lbl]
->>>>>>> bibin
 
 (* Compile a series of statements *)
 and cmp_block (c:Ctxt.t) (rt:Ll.ty) (stmts:Ast.block) : Ctxt.t * stream =
