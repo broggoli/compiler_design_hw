@@ -462,9 +462,10 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       >@ exp_stream
       >@ lift [(gensym "", Store (ty, opnd, Ll.Id uid))]
   | Assn (exp_node_lhs, exp_node_rhs) ->
-      (* TODO: type check? *)
       let lhs_ty, lhs_opnd, lhs_stream = cmp_lhs c exp_node_lhs in
       let rhs_ty, rhs_opnd, rhs_stream = cmp_exp c exp_node_rhs in
+      if lhs_ty <> (Ptr rhs_ty) (* type check *)
+        then failwith @@ "assign types not matching" ^ (Llutil.string_of_ty lhs_ty) ^ " " ^(Llutil.string_of_ty rhs_ty);
       let store_stream = lift [(gensym "", Store (rhs_ty, rhs_opnd, lhs_opnd))] in
       c, lhs_stream >@ rhs_stream >@ store_stream
   | SCall (expnode, exp_node_list) -> failwith "calling is not implemented yet"
