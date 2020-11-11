@@ -313,25 +313,25 @@ let cmp_uop (dest:uid) (opnd:Ll.operand): Ast.unop -> stream * Ll.ty = function
                 ] , Ll.I64
   
 let cmp_bin_op (dest:uid) (opnd1:Ll.operand) (opnd2:Ll.operand): Ast.binop -> stream * Ll.ty = 
-  let int_binop_stream (op:Ll.bop) : stream = lift [dest, Binop (op, Ll.I64, opnd1, opnd2)] in
+  let int_binop_stream (op:Ll.bop) (ty:Ll.ty): stream = lift [dest, Binop (op, ty, opnd1, opnd2)] in
   let int_cmp_stream (cnd:Ll.cnd) : stream  = lift [dest, Icmp (cnd, Ll.I64, opnd1, opnd2)] in
   function
-  | Add ->  int_binop_stream Ll.Add, Ll.I64
-  | Sub ->  int_binop_stream Ll.Sub, Ll.I64
-  | Mul ->  int_binop_stream Ll.Mul, Ll.I64
+  | Add ->  int_binop_stream Ll.Add Ll.I64, Ll.I64
+  | Sub ->  int_binop_stream Ll.Sub Ll.I64, Ll.I64
+  | Mul ->  int_binop_stream Ll.Mul Ll.I64, Ll.I64
   | Eq  ->  int_cmp_stream Ll.Eq, Ll.I1
   | Neq ->  int_cmp_stream Ll.Ne, Ll.I1
   | Lt  ->  int_cmp_stream Ll.Slt, Ll.I1
   | Lte ->  int_cmp_stream Ll.Sle, Ll.I1
   | Gt  ->  int_cmp_stream Ll.Sgt, Ll.I1
   | Gte ->  int_cmp_stream Ll.Sge, Ll.I1
-  | And ->  int_binop_stream Ll.And, Ll.I64
-  | Or  ->  int_binop_stream Ll.Or, Ll.I64
-  | IAnd->  int_binop_stream Ll.And, Ll.I64
-  | IOr ->  int_binop_stream Ll.Or, Ll.I64
-  | Shl ->  int_binop_stream Ll.Shl, Ll.I64
-  | Shr ->  int_binop_stream Ll.Lshr, Ll.I64
-  | Sar ->  int_binop_stream Ll.Ashr, Ll.I64
+  | And ->  int_binop_stream Ll.And Ll.I1, Ll.I1
+  | Or  ->  int_binop_stream Ll.Or Ll.I1, Ll.I1
+  | IAnd->  int_binop_stream Ll.And Ll.I64, Ll.I64
+  | IOr ->  int_binop_stream Ll.Or Ll.I64, Ll.I64
+  | Shl ->  int_binop_stream Ll.Shl Ll.I64, Ll.I64
+  | Shr ->  int_binop_stream Ll.Lshr Ll.I64, Ll.I64
+  | Sar ->  int_binop_stream Ll.Ashr Ll.I64, Ll.I64
 
 let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   let {elt=ex} = exp in
