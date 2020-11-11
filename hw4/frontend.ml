@@ -367,6 +367,7 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       ty , Ll.Id dest , lift [dest, Load ((Ptr ty), opnd)]
   | {elt=(Index (arr_exp, index_exp))}    -> 
       (* Don't forget to dereference, since the index is on the rhs *)
+      (* TODO: refactor with cmp_lhs function *)
       let arr_ty, arr_opnd, arr_stream = cmp_exp c arr_exp in
       let index_ty, index_opnd, index_stream = cmp_exp c index_exp in
       let element_ref, element_val = gensym "element_ref", gensym "element_val" in
@@ -396,7 +397,15 @@ let cmp_lhs (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   | Id id -> 
       let ty, opnd = Ctxt.lookup id c in
       ty, opnd, []
-  | _ -> failwith "cmp_lhs unimplemented"
+  | Index (arr_exp, index_exp) -> 
+      let arr_ty, arr_opnd, arr_stream = cmp_exp c arr_exp in
+      let index_ty, index_opnd, index_stream = cmp_exp c index_exp in
+      let element_ref = gensym "element_ref" in
+      let element_ty = I64 in (* wrong, but works for now *)
+      let gep_stream = lift [element_ref, Gep (arr_ty, arr_opnd, [Const 0L; Const 1L; index_opnd])] in
+      let stream = arr_stream >@ index_stream >@ gep_stream in
+      Ptr element_ty, Ll.Id element_ref, stream
+  | _ -> failwith "this expression can't be on the lhs"
 
 (* Compile a statement in context c with return typ rt. Return a new context, 
    possibly extended with new local bindings, and the instruction stream
@@ -453,7 +462,10 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
           let stream_store = lift [(gensym "", Store (ty_rhs, opnd_rhs, opnd_lhs))] in
           c, stream_lhs >@ stream_rhs >@ stream_store
       | Index (exp_arr, exp_ind) -> 
-          failwith "Index array assignment not implemented yet"
+          let lhs_ty, lhs_opnd, lhs_stream = cmp_lhs c exp_node_lhs in
+          let rhs_ty, rhs_opnd, rhs_stream = cmp_exp c exp_node_rhs in
+          let store_stream = lift [(gensym "", Store (rhs_ty, rhs_opnd, lhs_opnd))] in
+          c, lhs_stream >@ rhs_stream >@ store_stream
       | _ -> failwith "lhs not assignable"
   )
   | SCall (expnode, exp_node_list) -> failwith "calling is not implemented yet"
