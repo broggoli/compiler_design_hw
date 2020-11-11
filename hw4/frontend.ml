@@ -443,8 +443,19 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
         >@ [L else_lbl] >@ else_stream >@ [T (Br merge_lbl)] 
       >@ [L merge_lbl]
 
-  | For (vdecl_list, exp_node_opt, stmt_node_opt, block) -> 
-      failwith "for loop is not implemented yet"
+  | For (vdecl_list, test_opt, inc_opt, for_body_block) -> 
+      let vdecl_block = List.map (fun vd -> no_loc (Decl vd)) vdecl_list in
+      let body_ctxt, init_stream = cmp_block c rt vdecl_block in
+      let test_exp = match test_opt with
+        | Some exp_node -> exp_node
+        | None -> no_loc (CBool true)
+      in
+      let while_body_block = match inc_opt with
+        | Some stmt_node -> for_body_block @ [stmt_node]
+        | None -> for_body_block
+      in
+      let _, stream = cmp_stmt body_ctxt rt (no_loc (While (test_exp, while_body_block))) in
+      c, init_stream >@ stream
   | While (test_exp, body_block) -> 
       let ty, opnd, test_stream = cmp_exp c test_exp in
       let _, body_stream = cmp_block c rt body_block in
