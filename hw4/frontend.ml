@@ -365,17 +365,16 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       (* Debug print Printf.printf "%s %s\n" (Llutil.string_of_ty ty) (Llutil.string_of_operand opnd);*)
       let dest = gensym "" in
       ty , Ll.Id dest , lift [dest, Load ((Ptr ty), opnd)]
-  | {elt=(Index (exp_node, index))}    -> 
-      let exp_ty, exp_opnd, exp_stream = cmp_exp c exp_node in
-      let index_ty, index_opnd, index_stream = cmp_exp c index in
-      let outputsym = gensym "" in
-      let operand = Ll.Id outputsym in
-      let gep = 
-        lift [outputsym, Gep (exp_ty, exp_opnd, [Const 0L; Const 1L; index_opnd])
-        ]
-      in
-      let stream = exp_stream >@ index_stream >@ gep in
-      exp_ty, operand, stream
+  | {elt=(Index (arr_exp, index_exp))}    -> 
+      (* Don't forget to dereference, since the index is on the rhs *)
+      let arr_ty, arr_opnd, arr_stream = cmp_exp c arr_exp in
+      let index_ty, index_opnd, index_stream = cmp_exp c index_exp in
+      let element_ref, element_val = gensym "element_ref", gensym "element_val" in
+      let element_ty = Ptr I64 in (* wrong, but works for now *)
+      let gep_stream = lift [element_ref, Gep (arr_ty, arr_opnd, [Const 0L; Const 1L; index_opnd])] in
+      let dereference_stream = lift[element_val, Load (element_ty, Ll.Id element_ref)] in
+      let stream = arr_stream >@ index_stream >@ gep_stream >@ dereference_stream in
+      element_ty, Ll.Id element_val, stream
   | {elt=(Call (exp_node, exp_nodes))}      -> failwith "Call exp unimplemented"
   | {elt=(Bop (op, exp_node1, exp_node2))}  ->  
       let exp1_ty, exp1_opnd, exp1_stream = cmp_exp c exp_node1 in
