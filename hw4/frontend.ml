@@ -453,21 +453,12 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       [E (uid, Alloca ty)]
       >@ exp_stream
       >@ lift [(gensym "", Store (ty, opnd, Ll.Id uid))]
-  | Assn (exp_node_lhs, exp_node_rhs) -> ( 
-      match exp_node_lhs.elt with
-      | Id id -> 
-          (* TODO: type check? *)
-          let ty_lhs, opnd_lhs, stream_lhs = cmp_lhs c exp_node_lhs in
-          let ty_rhs, opnd_rhs, stream_rhs = cmp_exp c exp_node_rhs in
-          let stream_store = lift [(gensym "", Store (ty_rhs, opnd_rhs, opnd_lhs))] in
-          c, stream_lhs >@ stream_rhs >@ stream_store
-      | Index (exp_arr, exp_ind) -> 
-          let lhs_ty, lhs_opnd, lhs_stream = cmp_lhs c exp_node_lhs in
-          let rhs_ty, rhs_opnd, rhs_stream = cmp_exp c exp_node_rhs in
-          let store_stream = lift [(gensym "", Store (rhs_ty, rhs_opnd, lhs_opnd))] in
-          c, lhs_stream >@ rhs_stream >@ store_stream
-      | _ -> failwith "lhs not assignable"
-  )
+  | Assn (exp_node_lhs, exp_node_rhs) ->
+      (* TODO: type check? *)
+      let lhs_ty, lhs_opnd, lhs_stream = cmp_lhs c exp_node_lhs in
+      let rhs_ty, rhs_opnd, rhs_stream = cmp_exp c exp_node_rhs in
+      let store_stream = lift [(gensym "", Store (rhs_ty, rhs_opnd, lhs_opnd))] in
+      c, lhs_stream >@ rhs_stream >@ store_stream
   | SCall (expnode, exp_node_list) -> failwith "calling is not implemented yet"
   | If (test_exp, then_block, else_block) ->  
       (* TODO: the context changes inside the blocks can be ignored, right? *)
