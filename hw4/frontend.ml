@@ -366,19 +366,14 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   | {elt=(Id id)}                           ->  
       (* Don't forget to dereference, since the variable is on the rhs *)
       let (Ptr ty), opnd = Ctxt.lookup id c in
-      (* Debug print Printf.printf "%s %s\n" (Llutil.string_of_ty ty) (Llutil.string_of_operand opnd);*)
       let dest = gensym "" in
       ty , Ll.Id dest , lift [dest, Load ((Ptr ty), opnd)]
   | {elt=(Index (arr_exp, index_exp))}    -> 
       (* Don't forget to dereference, since the index is on the rhs *)
-      (* TODO: refactor with cmp_lhs function *)
-      let arr_ty, arr_opnd, arr_stream = cmp_exp c arr_exp in
-      let index_ty, index_opnd, index_stream = cmp_exp c index_exp in
-      let element_ref, element_val = gensym "element_ref", gensym "element_val" in
-      let element_ty = I64 in (* wrong, but works for now *)
-      let gep_stream = lift [element_ref, Gep (arr_ty, arr_opnd, [Const 0L; Const 1L; index_opnd])] in
+      let element_val = gensym "element_val" in
+      let (Ptr element_ty), (Ll.Id element_ref), reference_stream = cmp_lhs c exp in
       let dereference_stream = lift [element_val, Load (Ptr element_ty, Ll.Id element_ref)] in
-      let stream = arr_stream >@ index_stream >@ gep_stream >@ dereference_stream in
+      let stream = reference_stream >@ dereference_stream in
       element_ty, Ll.Id element_val, stream
   | {elt=(Call (exp_node, exp_nodes))}      -> failwith "Call exp unimplemented"
   | {elt=(Bop (op, exp_node1, exp_node2))}  ->  
@@ -395,7 +390,7 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       let cmpld_uop, exp_type = cmp_uop outputsym exp_opnd unop in
       exp_type, operand, exp_stream >@ cmpld_uop
                                                
-let cmp_lhs (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
+and cmp_lhs (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   let {elt=ex} = exp in
   match ex with
   | Id id -> 
