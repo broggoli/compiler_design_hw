@@ -365,9 +365,16 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       arr_ty, arr_ref_opnd, size_stream >@ arr_alloc_stream
   | {elt=(Id id)}                           ->  
       (* Don't forget to dereference, since the variable is on the rhs *)
-      let (Ptr ty), opnd = Ctxt.lookup id c in
-      let dest = gensym "id_dest" in
-      ty , Ll.Id dest , lift [dest, Load ((Ptr ty), opnd)]
+      let id_ty, opnd = Ctxt.lookup id c in
+      let ty, return_opnd, stream = 
+        match id_ty with 
+          | Ptr (Fun (arg_tys, ret_ty)) -> 
+              Fun (arg_tys, ret_ty), opnd, []
+          | Ptr ty -> 
+              let dest = gensym "id_dest" in
+              ty, Ll.Id dest, lift [dest, Load ((Ptr ty), opnd)]
+      in
+      ty, return_opnd, stream
   | {elt=(Index (arr_exp, index_exp))}    -> 
       (* Don't forget to dereference, since the index is on the rhs *)
       let element_val = gensym "element_val" in
@@ -407,7 +414,18 @@ and cmp_lhs (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       let ty, opnd = Ctxt.lookup id c in
       ty, opnd, []
   | Index (arr_exp, index_exp) -> 
-      let (Ptr arr_ty), arr_opnd, arr_stream = cmp_exp c arr_exp in
+      let arr_ptr, arr_opnd, arr_stream = cmp_exp c arr_exp in
+      let arr_ty = match arr_ptr with 
+      | Ptr ty -> ty
+      | Void  -> failwith "Void"
+      | I1    -> failwith "I1"
+      | I8    -> failwith "I8"
+      | I64   -> failwith "I64"
+      | Struct _ -> failwith "Struct"
+      | Array _ -> failwith "Array"
+      | Fun _ -> failwith "Fun"
+      | Namedt _ -> failwith "Namedt"
+      in
       let index_ty, index_opnd, index_stream = cmp_exp c index_exp in
       let element_ref = gensym "element_ref" in
       let element_ty = elem_ty_of_array arr_ty in
