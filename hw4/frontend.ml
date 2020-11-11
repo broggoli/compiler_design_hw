@@ -337,18 +337,45 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   let {elt=ex} = exp in
   match exp with
   | {elt=(CNull rty)}                       ->  cmp_rty rty, Ll.Null, []
-  | {elt=(CBool b)}                         ->  Ll.I1, Ll.Const (if b then 1L else 0L), lift []
-  | {elt=(CInt i)}                          ->  Ll.I64, Ll.Const i, lift []
+    (* TODO: find out whether this bool actually works*)
+  | {elt=(CBool b)}                         ->  Ll.I1, Ll.Const (if b then 1L else 0L), []
+  | {elt=(CInt i)}                          ->  Ll.I64, Ll.Const i, []
   | {elt=(CStr s)}                          -> failwith "CStr exp unimplemented"
-  | {elt=(CArr (ty, exp_nodes))}            -> failwith "CArr exp unimplemented"
-  | {elt=(NewArr (ty, exp_node))}           -> failwith "NewArr exp unimplemented"
+  | {elt=(CArr (ty, fillers))}            -> 
+      (*let size_ty, size_opnd, size_stream = cmp_exp c size in *)
+      let size = Const (Int64.of_int @@ List.length fillers) in
+      let arr_ty, arr_ref_opnd, arr_alloc_stream = oat_alloc_array ty size in
+      let initialze_arr = List.concat @@ List.mapi (fun index exp_node -> 
+          let exp_ty, exp_opnd, exp_stream = cmp_exp c exp_node in
+          let index_opnd = Const (Int64.of_int index) in
+          let interm = gensym "" in
+          exp_stream >@
+          lift [ interm, Gep (arr_ty, arr_ref_opnd, [Const 0L; Const 1L; index_opnd])
+          ; gensym "", Store (exp_ty, exp_opnd, (Ll.Id interm))]
+        ) fillers
+      in
+      arr_ty, arr_ref_opnd, arr_alloc_stream >@ initialze_arr
+  | {elt=(NewArr (ty, size))}           -> 
+      let size_ty, size_opnd, size_stream = cmp_exp c size in 
+      let arr_ty, arr_ref_opnd, arr_alloc_stream = oat_alloc_array ty size_opnd in
+      arr_ty, arr_ref_opnd, size_stream >@ arr_alloc_stream
   | {elt=(Id id)}                           ->  
       (* Don't forget to dereference, since the variable is on the rhs *)
       let (Ptr ty), opnd = Ctxt.lookup id c in
       (* Debug print Printf.printf "%s %s\n" (Llutil.string_of_ty ty) (Llutil.string_of_operand opnd);*)
       let dest = gensym "" in
       ty , Ll.Id dest , lift [dest, Load ((Ptr ty), opnd)]
-  | {elt=(Index (exp_node1, exp_node2))}    -> failwith "Index exp unimplemented"
+  | {elt=(Index (exp_node, index))}    -> 
+      let exp_ty, exp_opnd, exp_stream = cmp_exp c exp_node in
+      let index_ty, index_opnd, index_stream = cmp_exp c index in
+      let outputsym = gensym "" in
+      let operand = Ll.Id outputsym in
+      let gep = 
+        lift [outputsym, Gep (exp_ty, exp_opnd, [Const 0L; Const 1L; index_opnd])
+        ]
+      in
+      let stream = exp_stream >@ index_stream >@ gep in
+      exp_ty, operand, stream
   | {elt=(Call (exp_node, exp_nodes))}      -> failwith "Call exp unimplemented"
   | {elt=(Bop (op, exp_node1, exp_node2))}  ->  
       let exp1_ty, exp1_opnd, exp1_stream = cmp_exp c exp_node1 in
@@ -438,10 +465,10 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       let _, else_stream = cmp_block c rt else_block in
       let then_lbl, else_lbl, merge_lbl = gensym "then", gensym "else", gensym "merge" in
       c,
-      test_stream >@ [T (Cbr (opnd, then_lbl, else_lbl))] 
-        >@ [L then_lbl] >@ then_stream >@ [T (Br merge_lbl)] 
-        >@ [L else_lbl] >@ else_stream >@ [T (Br merge_lbl)] 
-      >@ [L merge_lbl]
+      test_stream >:: T (Cbr (opnd, then_lbl, else_lbl))
+        >:: L then_lbl >@ then_stream >:: T (Br merge_lbl)
+        >:: L else_lbl >@ else_stream >:: T (Br merge_lbl)
+      >:: L merge_lbl
 
   | For (vdecl_list, test_opt, inc_opt, for_body_block) -> 
       let vdecl_block = List.map (fun vd -> no_loc (Decl vd)) vdecl_list in
@@ -458,9 +485,9 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       c, init_stream >@ stream
   | While (test_exp, body_block) -> 
       let ty, opnd, test_stream = cmp_exp c test_exp in
-      let _, body_stream = cmp_block c rt body_block in
+      let new_ctxt, body_stream = cmp_block c rt body_block in
       let pre_lbl, body_lbl, post_lbl = gensym "pre", gensym "body", gensym "post" in
-      c,
+      new_ctxt,
       [T (Br pre_lbl)] >@ [L pre_lbl] >@ test_stream >@ [T (Cbr (opnd, body_lbl, post_lbl))]
         >@ [L body_lbl] >@ body_stream >@ [T (Br pre_lbl)]
       >@ [L post_lbl]
