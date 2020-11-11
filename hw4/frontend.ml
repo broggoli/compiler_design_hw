@@ -308,13 +308,6 @@ let oat_alloc_array (t:Ast.ty) (size:Ll.operand) : Ll.ty * operand * stream =
      (CArr) and the (NewArr) expressions
 
 *)
-
-let deref_wrapper (id:Ll.operand) : Ll.ty -> Ll.ty * Ll.operand * stream = function 
-| Ptr t -> 
-    let return_id = gensym "" in
-    t, Ll.Id return_id, lift [return_id, Load (Ptr t, id)]
-| t     -> t, id, []
-
 let cmp_uop (dest:uid) (opnd:Ll.operand): Ast.unop -> stream * Ll.ty = function
   | Neg     ->  lift [ dest, Binop (Ll.Sub, Ll.I64, Ll.Const 0L, opnd)] , Ll.I64
   | Lognot  ->  lift [dest, Icmp (Ll.Ne, Ll.I64, Ll.Const 0L, opnd)] , Ll.I64
@@ -392,11 +385,10 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       exp_type, operand, exp1_stream >@ exp2_stream >@ cmpld_binop
   | {elt=(Uop (unop, exp_node))}            ->  
       let exp_ty, exp_opnd, exp_stream = cmp_exp c exp_node in
-      let exp_ty', exp_opnd', exp_stream' = deref_wrapper exp_opnd exp_ty in
       let outputsym = gensym "" in
       let operand = Ll.Id outputsym in
-      let cmpld_uop, exp_type = cmp_uop outputsym exp_opnd' unop in
-      exp_type, operand, exp_stream >@ exp_stream' >@ cmpld_uop
+      let cmpld_uop, exp_type = cmp_uop outputsym exp_opnd unop in
+      exp_type, operand, exp_stream >@ cmpld_uop
                                                
 and cmp_lhs (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   let {elt=ex} = exp in
@@ -448,8 +440,7 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       match exp_node_opt with
       | Some exp_node ->  
           let ty, id, exp_stream = cmp_exp c exp_node in
-          let ret_ty, ret_id, deref = deref_wrapper id ty in
-          c, exp_stream >@ deref >@ [T (Ret (ret_ty, Some ret_id))]
+          c, exp_stream >@ [T (Ret (rt, Some id))]
       | None          ->  c, [T (Ret (rt, None))]
   )
   | Ast.Decl vdecl ->  
