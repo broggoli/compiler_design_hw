@@ -618,7 +618,18 @@ let rec cmp_gexp c (e:Ast.exp node) : Ll.gdecl * (Ll.gid * Ll.gdecl) list =
   | CNull rty       ->  (cmp_ty (TRef rty), GNull), []
   | CBool b         ->  (I1, GInt (if b then 1L else 0L)), []
   | CInt i          ->  (I64, GInt i), []
-  | CStr s          ->  (cmp_ty (TRef RString), GString s), []
+  | CStr s          ->  (*(Array (1 + String.length s, I8), GString s), []*)
+    
+    let n = 1 + String.length s in
+    let from_ty = Array (n, I8) in
+    let to_ty = Ptr I8 in
+
+    let str_lbl = gensym ".str" in
+    let str_gdecl = (str_lbl, (from_ty, GString s)) in
+
+    let gbitcast = GBitcast (Ptr from_ty, GGid str_lbl, to_ty) in
+    (to_ty, gbitcast), [str_gdecl]
+    
   | CArr (ty, exps) ->  
 
     let n = List.length exps in
