@@ -553,7 +553,7 @@ let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
           | CNull ty -> cmp_ty (TRef ty)
           | CBool ty -> cmp_ty TBool
           | CInt ty  -> cmp_ty TInt
-          | CStr ty  -> failwith "global string declarations not implemented yet"
+          | CStr s  -> Array (1 + String.length s, I8)
           | CArr (ty, _) -> cmp_ty (TRef (RArray ty))
           | _        -> failwith "global variable declarations cannot contain this type"
           in
@@ -620,7 +620,7 @@ let rec cmp_gexp c (e:Ast.exp node) : Ll.gdecl * (Ll.gid * Ll.gdecl) list =
   (* TODO: find out what the type of bools is in ll*)
   | CBool b         ->  (I1, GInt (if b then 1L else 0L)), []
   | CInt i          ->  (I64, GInt i), []
-  | CStr s          ->  (cmp_ty (TRef RString), GString s), []
+  | CStr s          ->  (Array (1 + String.length s, I8), GString s), []
   | CArr (ty, exps) ->  
 
     let n = List.length exps in
