@@ -310,7 +310,7 @@ let oat_alloc_array (t:Ast.ty) (size:Ll.operand) : Ll.ty * operand * stream =
 *)
 let cmp_uop (dest:uid) (opnd:Ll.operand): Ast.unop -> stream * Ll.ty = function
   | Neg     ->  lift [ dest, Binop (Ll.Sub, Ll.I64, Ll.Const 0L, opnd)] , Ll.I64
-  | Lognot  ->  lift [dest, Icmp (Ll.Ne, Ll.I1, Ll.Const 0L, opnd)] , Ll.I64
+  | Lognot  ->  lift [dest, Binop (Ll.Xor, Ll.I1, Ll.Const 1L, opnd)] , Ll.I64
   | Bitnot  ->  let intermediate = gensym "" in
                 lift [intermediate, Binop (Ll.Sub, Ll.I64, Ll.Const 0L, opnd)
                     ; dest, Binop (Ll.Sub, Ll.I64, Ll.Id intermediate, Ll.Const 1L)
@@ -348,7 +348,7 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       let n = 1 + String.length s in
       let str_gid = gensym "string" in
       let g_str_ty = Array (n, I8) in
-      let str_gdecl = g_str_ty, (GString s) in
+      let str_gdecl = g_str_ty, GString s in
       let str_elt = G (str_gid, str_gdecl) in
       
       let str_addr = gensym "str_addr" in
