@@ -340,7 +340,7 @@ let cmp_bin_op (dest:uid) (opnd1:Ll.operand) (opnd2:Ll.operand): Ast.binop -> st
 let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   let {elt=ex} = exp in
   match exp with
-  | {elt=(CNull rty)}                       ->  cmp_rty rty, Ll.Null, []
+  | {elt=(CNull rty)}                       ->  cmp_ty (TRef rty), Ll.Null, []
     (* TODO: find out whether this bool actually works*)
   | {elt=(CBool b)}                         ->  Ll.I1, Ll.Const (if b then 1L else 0L), []
   | {elt=(CInt i)}                          ->  Ll.I64, Ll.Const i, []
@@ -453,9 +453,10 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       >@ exp_stream
       >@ lift [(gensym "", Store (ty, opnd, Ll.Id uid))]
   | Assn (exp_node_lhs, exp_node_rhs) ->
-      (* TODO: type check? *)
       let lhs_ty, lhs_opnd, lhs_stream = cmp_lhs c exp_node_lhs in
       let rhs_ty, rhs_opnd, rhs_stream = cmp_exp c exp_node_rhs in
+      if lhs_ty <> (Ptr rhs_ty) (* type check *)
+        then failwith @@ "assign types not matching" ^ (Llutil.string_of_ty lhs_ty) ^ " " ^(Llutil.string_of_ty rhs_ty);
       let store_stream = lift [(gensym "", Store (rhs_ty, rhs_opnd, lhs_opnd))] in
       c, lhs_stream >@ rhs_stream >@ store_stream
   | SCall (expnode, exp_node_list) -> failwith "calling is not implemented yet"
@@ -526,11 +527,11 @@ let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
       | Ast.Gvdecl { elt={ name; init } } ->
           let { elt=init_exp } = init in
           let vt = match init_exp with
-          | CNull ty -> cmp_rty ty 
+          | CNull ty -> cmp_ty (TRef ty)
           | CBool ty -> cmp_ty TBool
           | CInt ty  -> cmp_ty TInt
           | CStr ty  -> failwith "global string declarations not implemented yet"
-          | CArr _   -> failwith "global array declarations not implemented yet"
+          | CArr (ty, _) -> cmp_ty (TRef (RArray ty))
           | _        -> failwith "global variable declarations cannot contain this type"
           in
           Ctxt.add c name (Ptr vt, Gid name)
@@ -598,9 +599,18 @@ let rec cmp_gexp c (e:Ast.exp node) : Ll.gdecl * (Ll.gid * Ll.gdecl) list =
   | CInt i          ->  (I64, GInt i), []
   | CStr s          ->  (cmp_ty (TRef RString), GString s), []
   | CArr (ty, exps) ->  
+
+    let n = List.length exps in
     let gdecls, tails = List.split @@ List.map (cmp_gexp c) exps in
-    let gdecls_with_id = List.map (fun gdcl -> (gensym "", gdcl)) gdecls in
-    (cmp_ty (TRef (RArray ty)), GArray gdecls), gdecls_with_id @ List.concat tails
+    (*let gdecls_with_id = List.map (fun gdcl -> (gensym "", gdcl)) gdecls in*)
+
+    let arr_ptr_ty = cmp_ty (TRef (RArray ty)) in
+    let arr_n_ty = Struct [I64; Array(n, cmp_ty ty)] in (* TODO: seems hacky*)
+    let g_arr_gid = gensym "global_arr" in
+    let g_arr = GStruct [(I64, GInt (Int64.of_int n)); (Array (n, cmp_ty ty), GArray gdecls)] in
+    let gbitcast = GBitcast (Ptr arr_n_ty, GGid g_arr_gid, arr_ptr_ty) in
+
+    (arr_ptr_ty, gbitcast), (g_arr_gid, (arr_n_ty, g_arr)) :: List.concat tails
   | _               -> failwith "global expressions cannot contain this type"
 
 (* Oat internals function context ------------------------------------------- *)
