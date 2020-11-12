@@ -249,7 +249,6 @@ let elem_ty_of_array : Ll.ty -> Ll.ty = function
 
 *)
 
-(* TODO: get what this means... *)
 (* Global initialized arrays:
 
   There is another wrinkle: To compile global initialized arrays like in the
@@ -339,23 +338,23 @@ let cmp_bin_op (dest:uid) (opnd1:Ll.operand) (opnd2:Ll.operand): Ast.binop -> st
 
 let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   let {elt=ex} = exp in
-  match exp with
-  | {elt=(CNull rty)}                       ->  cmp_ty (TRef rty), Ll.Null, []
-    (* TODO: find out whether this bool actually works*)
-  | {elt=(CBool b)}                         ->  Ll.I1, Ll.Const (if b then 1L else 0L), []
-  | {elt=(CInt i)}                          ->  Ll.I64, Ll.Const i, []
-  | {elt=(CStr s)}                          -> 
+  match ex with
+  | CNull rty -> 
+      cmp_ty (TRef rty), Ll.Null, []
+  | CBool b   -> 
+      Ll.I1, Ll.Const (if b then 1L else 0L), []
+  | CInt i    -> 
+      Ll.I64, Ll.Const i, []
+  | CStr s    -> 
       let n = 1 + String.length s in
       let str_gid = gensym "string" in
       let g_str_ty = Array (n, I8) in
       let str_gdecl = g_str_ty, GString s in
       let str_elt = G (str_gid, str_gdecl) in
-      
       let str_addr = gensym "str_addr" in
       let cast_elt = I (str_addr, Gep (Ptr g_str_ty, Ll.Gid str_gid, [Const 0L; Const 0L])) in
       Ptr I8, Ll.Id str_addr, [str_elt; cast_elt]
-  | {elt=(CArr (ty, fillers))}              -> 
-      (*let size_ty, size_opnd, size_stream = cmp_exp c size in *)
+  | CArr (ty, fillers) -> 
       let size = Const (Int64.of_int @@ List.length fillers) in
       let arr_ty, arr_ref_opnd, arr_alloc_stream = oat_alloc_array ty size in
       let initialze_arr = List.concat @@ List.mapi (fun index exp_node -> 
@@ -368,23 +367,23 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
         ) fillers
       in
       arr_ty, arr_ref_opnd, arr_alloc_stream >@ initialze_arr
-  | {elt=(NewArr (ty, size))}           -> 
+  | NewArr (ty, size)           -> 
       let size_ty, size_opnd, size_stream = cmp_exp c size in 
       let arr_ty, arr_ref_opnd, arr_alloc_stream = oat_alloc_array ty size_opnd in
       arr_ty, arr_ref_opnd, size_stream >@ arr_alloc_stream
-  | {elt=(Id id)}                           ->  
+  | Id id                           ->  
       (* Don't forget to dereference, since the variable is on the rhs *)
       let Ptr ty, opnd = Ctxt.lookup id c in
       let dest = gensym "id_dest" in
       ty, Ll.Id dest, lift [dest, Load ((Ptr ty), opnd)]
-  | {elt=(Index (arr_exp, index_exp))}    -> 
+  | Index (arr_exp, index_exp)    -> 
       (* Don't forget to dereference, since the index is on the rhs *)
       let element_val = gensym "element_val" in
       let (Ptr element_ty), (Ll.Id element_ref), reference_stream = cmp_lhs c exp in
       let dereference_stream = lift [element_val, Load (Ptr element_ty, Ll.Id element_ref)] in
       let stream = reference_stream >@ dereference_stream in
       element_ty, Ll.Id element_val, stream
-  | {elt=(Call (exp_fun_id, arg_exps))}      ->
+  | Call (exp_fun_id, arg_exps)      ->
       let {elt=Id id} = exp_fun_id in
       let Ptr id_ty, opnd = Ctxt.lookup id c in
       let args, arg_streams = List.split @@ List.map (fun arg_exp -> 
@@ -396,14 +395,14 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       let return_opnd = gensym "function_return" in
       let stream = List.concat arg_streams >@ lift [return_opnd, Ll.Call (ret_type, opnd, args)] in
       ret_type, Ll.Id return_opnd, stream
-  | {elt=(Bop (op, exp_node1, exp_node2))}  ->  
+  | Bop (op, exp_node1, exp_node2)  ->  
       let exp1_ty, exp1_opnd, exp1_stream = cmp_exp c exp_node1 in
       let exp2_ty, exp2_opnd, exp2_stream = cmp_exp c exp_node2 in
       let outputsym = gensym "" in
       let operand = Ll.Id outputsym in
       let cmpld_binop, exp_type = cmp_bin_op outputsym exp1_opnd exp2_opnd op in
       exp_type, operand, exp1_stream >@ exp2_stream >@ cmpld_binop
-  | {elt=(Uop (unop, exp_node))}            ->  
+  | Uop (unop, exp_node)            ->  
       let exp_ty, exp_opnd, exp_stream = cmp_exp c exp_node in
       let outputsym = gensym "" in
       let operand = Ll.Id outputsym in
@@ -634,16 +633,15 @@ let rec cmp_gexp c (e:Ast.exp node) : Ll.gdecl * (Ll.gid * Ll.gdecl) list =
 
     let n = List.length exps in
     let gdecls, tails = List.split @@ List.map (cmp_gexp c) exps in
-    (*let gdecls_with_id = List.map (fun gdcl -> (gensym "", gdcl)) gdecls in*)
 
     let arr_ptr_ty = cmp_ty (TRef (RArray ty)) in
-    let arr_n_ty = Struct [I64; Array(n, cmp_ty ty)] in (* TODO: seems hacky*)
+    let arr_n_ty = Struct [I64; Array(n, cmp_ty ty)] in (* seems hacky*)
     let g_arr_gid = gensym "global_arr" in
     let g_arr = GStruct [(I64, GInt (Int64.of_int n)); (Array (n, cmp_ty ty), GArray gdecls)] in
     let gbitcast = GBitcast (Ptr arr_n_ty, GGid g_arr_gid, arr_ptr_ty) in
 
     (arr_ptr_ty, gbitcast), (g_arr_gid, (arr_n_ty, g_arr)) :: List.concat tails
-  | _               -> failwith "global expressions cannot contain this type"
+  | _ -> failwith "global expressions cannot contain this type"
 
 (* Oat internals function context ------------------------------------------- *)
 let internals = [
