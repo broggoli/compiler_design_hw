@@ -340,7 +340,7 @@ let cmp_bin_op (dest:uid) (opnd1:Ll.operand) (opnd2:Ll.operand): Ast.binop -> st
 let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
   let {elt=ex} = exp in
   match exp with
-  | {elt=(CNull rty)}                       ->  cmp_rty rty, Ll.Null, []
+  | {elt=(CNull rty)}                       ->  cmp_ty (TRef rty), Ll.Null, []
     (* TODO: find out whether this bool actually works*)
   | {elt=(CBool b)}                         ->  Ll.I1, Ll.Const (if b then 1L else 0L), []
   | {elt=(CInt i)}                          ->  Ll.I64, Ll.Const i, []
@@ -365,16 +365,9 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       arr_ty, arr_ref_opnd, size_stream >@ arr_alloc_stream
   | {elt=(Id id)}                           ->  
       (* Don't forget to dereference, since the variable is on the rhs *)
-      let id_ty, opnd = Ctxt.lookup id c in
-      let ty, return_opnd, stream = 
-        match id_ty with 
-          | Ptr (Fun (arg_tys, ret_ty)) -> 
-              Fun (arg_tys, ret_ty), opnd, []
-          | Ptr ty -> 
-              let dest = gensym "id_dest" in
-              ty, Ll.Id dest, lift [dest, Load ((Ptr ty), opnd)]
-      in
-      ty, return_opnd, stream
+      let Ptr ty, opnd = Ctxt.lookup id c in
+      let dest = gensym "id_dest" in
+      ty, Ll.Id dest, lift [dest, Load ((Ptr ty), opnd)]
   | {elt=(Index (arr_exp, index_exp))}    -> 
       (* Don't forget to dereference, since the index is on the rhs *)
       let element_val = gensym "element_val" in
@@ -382,16 +375,17 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       let dereference_stream = lift [element_val, Load (Ptr element_ty, Ll.Id element_ref)] in
       let stream = reference_stream >@ dereference_stream in
       element_ty, Ll.Id element_val, stream
-  | {elt=(Call (exp_node, arg_exps))}      ->
-      let fun_ty, fun_opnd, exp_stream = cmp_exp c exp_node in
-      let args, arg_streams = List.split @@ List.rev_map (fun arg_exp -> 
+  | {elt=(Call (exp_fun_id, arg_exps))}      ->
+      let {elt=Id id} = exp_fun_id in
+      let Ptr id_ty, opnd = Ctxt.lookup id c in
+      let args, arg_streams = List.split @@ List.map (fun arg_exp -> 
         let arg_exp_ty, arg_exp_opnd, arg_exp_stream = cmp_exp c arg_exp in
         (arg_exp_ty, arg_exp_opnd), arg_exp_stream
       ) arg_exps 
       in
-      let Fun (_, ret_type) = fun_ty in
+      let Fun (_, ret_type) = id_ty in
       let return_opnd = gensym "function_return" in
-      let stream = exp_stream >@ List.concat arg_streams >@ lift [return_opnd, Ll.Call (ret_type, fun_opnd, args)] in
+      let stream = List.concat arg_streams >@ lift [return_opnd, Ll.Call (ret_type, opnd, args)] in
       ret_type, Ll.Id return_opnd, stream
   | {elt=(Bop (op, exp_node1, exp_node2))}  ->  
       let exp1_ty, exp1_opnd, exp1_stream = cmp_exp c exp_node1 in
@@ -414,18 +408,8 @@ and cmp_lhs (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
       let ty, opnd = Ctxt.lookup id c in
       ty, opnd, []
   | Index (arr_exp, index_exp) -> 
-      let arr_ptr, arr_opnd, arr_stream = cmp_exp c arr_exp in
-      let arr_ty = match arr_ptr with 
-      | Ptr ty -> ty
-      | Void  -> failwith "Void"
-      | I1    -> failwith "I1"
-      | I8    -> failwith "I8"
-      | I64   -> failwith "I64"
-      | Struct _ -> failwith "Struct"
-      | Array _ -> failwith "Array"
-      | Fun _ -> failwith "Fun"
-      | Namedt _ -> failwith "Namedt"
-      in
+      let Ptr arr_ty, arr_opnd, arr_stream = cmp_exp c arr_exp in
+     
       let index_ty, index_opnd, index_stream = cmp_exp c index_exp in
       let element_ref = gensym "element_ref" in
       let element_ty = elem_ty_of_array arr_ty in
@@ -486,7 +470,10 @@ let rec cmp_stmt (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt.t * stream =
       let rhs_ty, rhs_opnd, rhs_stream = cmp_exp c exp_node_rhs in
       let store_stream = lift [(gensym "", Store (rhs_ty, rhs_opnd, lhs_opnd))] in
       c, lhs_stream >@ rhs_stream >@ store_stream
-  | SCall (expnode, exp_node_list) -> failwith "calling is not implemented yet"
+  | SCall (exp_fun_id, arg_exps) ->
+      let call_node = no_loc (Call (exp_fun_id, arg_exps)) in 
+      let ty, opnd, call_stream = cmp_exp c call_node in
+      c, call_stream
   | If (test_exp, then_block, else_block) ->  
       let ty, opnd, test_stream = cmp_exp c test_exp in
       let _, then_stream = cmp_block c rt then_block in
@@ -553,7 +540,7 @@ let cmp_global_ctxt (c:Ctxt.t) (p:Ast.prog) : Ctxt.t =
       | Ast.Gvdecl { elt={ name; init } } ->
           let { elt=init_exp } = init in
           let vt = match init_exp with
-          | CNull ty -> cmp_rty ty 
+          | CNull ty -> cmp_ty (TRef ty) 
           | CBool ty -> cmp_ty TBool
           | CInt ty  -> cmp_ty TInt
           | CStr ty  -> failwith "global string declarations not implemented yet"
