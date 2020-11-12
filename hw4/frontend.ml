@@ -344,7 +344,16 @@ let rec cmp_exp (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.operand * stream =
     (* TODO: find out whether this bool actually works*)
   | {elt=(CBool b)}                         ->  Ll.I1, Ll.Const (if b then 1L else 0L), []
   | {elt=(CInt i)}                          ->  Ll.I64, Ll.Const i, []
-  | {elt=(CStr s)}                          -> failwith "CStr exp unimplemented"
+  | {elt=(CStr s)}                          -> 
+      let n = 1 + String.length s in
+      let str_gid = gensym "string" in
+      let g_str_ty = Array (n, I8) in
+      let str_gdecl = g_str_ty, (GString s) in
+      let str_elt = G (str_gid, str_gdecl) in
+      
+      let str_addr = gensym "str_addr" in
+      let cast_elt = I (str_addr, Gep (Ptr g_str_ty, Ll.Gid str_gid, [Const 0L; Const 0L])) in
+      Ptr I8, Ll.Id str_addr, [str_elt; cast_elt]
   | {elt=(CArr (ty, fillers))}              -> 
       (*let size_ty, size_opnd, size_stream = cmp_exp c size in *)
       let size = Const (Int64.of_int @@ List.length fillers) in
