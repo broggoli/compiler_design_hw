@@ -1,0 +1,59 @@
+global vertex_name = new string[]{"A", "B", "C", "D", "E"};
+
+global graph = new int[][]{
+    new int[]{1, 2},
+    new int[]{0, 3, 2},
+    new int[]{0, 4, 1},
+    new int[]{1},
+    new int[]{2}
+};
+
+int[] neigh(int v){
+    return graph[v];
+}
+
+global deg = new int[]{2, 3, 3, 1, 1};
+
+global vis = new bool[]{false, false, false ,false, false};
+
+global path = new int[]{10, 10, 10, 10, 10, 10, 10, 10, 10};
+global pi = 0;
+
+void add_to_path(int v){
+    path[pi] = v;
+    pi = pi + 1;
+
+    return;
+}
+
+void dfs(int v){
+    vis[v] = true;
+
+    add_to_path(v);
+
+    for(var i = 0; i < deg[v]; i = i + 1;){
+        var u = neigh(v)[i];
+        if(!vis[u]){
+            dfs(u);
+            add_to_path(v);
+        }
+    }
+
+    return;
+}
+
+int program(int argc, string[] args) {
+  dfs(0);
+
+  print_string(vertex_name[path[0]]);  
+  print_string(vertex_name[path[1]]);  
+  print_string(vertex_name[path[2]]);  
+  print_string(vertex_name[path[3]]);  
+  print_string(vertex_name[path[4]]);  
+  print_string(vertex_name[path[5]]);  
+  print_string(vertex_name[path[6]]);  
+  print_string(vertex_name[path[7]]);  
+  print_string(vertex_name[path[8]]);
+
+  return pi;
+}

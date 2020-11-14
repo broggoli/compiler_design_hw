@@ -27,7 +27,12 @@ let stud_stmt_test = [
   ("parse stmt test 13", stmt_test "for (var i = 0, var j = 0; ;) { }" (no_loc (For ([ "i", no_loc (CInt 0L) ; "j", no_loc (CInt 0L) ], None, None, [ ]))))
 ]
 
+let own_oat = [
+    ("oatprograms/dfs_ginit.oat", "", "ABDBCECBA9")
+]
+
 let parse_tests = [] (*tud_stmt_test @ stud_exp_test*)
 let provided_tests : suite = [
   Test("student parse tests", parse_tests);
+  Test("oat tests", Gradedtests.executed_oat_file own_oat);
 ] 
