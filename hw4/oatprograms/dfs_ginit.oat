@@ -44,16 +44,10 @@ void dfs(int v){
 
 int program(int argc, string[] args) {
   dfs(0);
-
-  print_string(vertex_name[path[0]]);  
-  print_string(vertex_name[path[1]]);  
-  print_string(vertex_name[path[2]]);  
-  print_string(vertex_name[path[3]]);  
-  print_string(vertex_name[path[4]]);  
-  print_string(vertex_name[path[5]]);  
-  print_string(vertex_name[path[6]]);  
-  print_string(vertex_name[path[7]]);  
-  print_string(vertex_name[path[8]]);
+  for(var i=0; i < 9; i = i + 1;) {
+    print_string(vertex_name[path[i]]);
+    print_string(", "); 
+  }
 
   return pi;
 }
