@@ -119,7 +119,32 @@ and subtype_ret (c : Tctxt.t) (t1 : Ast.ret_ty) (t2 : Ast.ret_ty) : bool =
     - tc contains the structure definition context
  *)
 let rec typecheck_ty (l : 'a Ast.node) (tc : Tctxt.t) (t : Ast.ty) : unit =
-  failwith "todo: implement typecheck_ty"
+  match t with
+  | TBool -> ()
+  | TInt -> ()
+  | TRef rty | TNullRef rty -> typecheck_rty l tc rty
+
+and typecheck_rty (l : 'a Ast.node) (tc : Tctxt.t) (t : Ast.rty) : unit = 
+  match t with
+  | RString -> ()
+  | RStruct id -> (
+      match lookup_struct_option id tc with 
+        | Some fl -> ()
+        | None    -> type_error l "structure not in context."
+
+      (* typecheck_tdecl tc id field_list l *)
+  )
+  | RArray ty -> typecheck_ty l tc ty
+  | RFun (ty_list, ret_ty) ->
+      List.fold_left (fun b ty -> typecheck_ty l tc ty) () ty_list;
+      typecheck_ret_ty l tc ret_ty
+
+and typecheck_ret_ty (l : 'a Ast.node) (tc : Tctxt.t) (t : Ast.ret_ty) : unit = 
+  match t with
+  | RetVoid -> ()
+  | RetVal ty -> typecheck_ty l tc ty
+  | _ -> type_error l "wrong return type."
+
 
 (* typechecking expressions ------------------------------------------------- *)
 (* Typechecks an expression in the typing context c, returns the type of the
