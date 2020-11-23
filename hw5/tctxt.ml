@@ -43,7 +43,7 @@ let lookup_option id c : Ast.ty option =
 
 
 (* structures --------------------------------------------------------------- *)
-let add_struct c id bnd = {c with structs=(id, bnd)::c.structs}
+let add_struct c id (bnd: Ast.field list) = {c with structs=(id, bnd)::c.structs}
 let lookup_struct id c = List.assoc id c.structs
 
 let lookup_struct_option id c =

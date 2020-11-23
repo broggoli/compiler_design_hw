@@ -47,11 +47,60 @@ let typ_of_unop : Ast.unop -> Ast.ty * Ast.ty = function
       (Don't forget about OCaml's 'and' keyword.)
 *)
 let rec subtype (c : Tctxt.t) (t1 : Ast.ty) (t2 : Ast.ty) : bool =
-  failwith "todo: subtype"
+  match (t1, t2) with
+  | (TBool, TBool) -> true
+  | (TInt, TInt) -> true
+  | (TRef rty1, TRef rty2) 
+  | (TNullRef rty1, TNullRef rty2)
+  | (TRef rty1, TNullRef rty2) 
+      -> subtype_ref c rty1 rty2
+  | _ -> false
 
 (* Decides whether H |-r ref1 <: ref2 *)
 and subtype_ref (c : Tctxt.t) (t1 : Ast.rty) (t2 : Ast.rty) : bool =
-  failwith "todo: subtype_ref"
+  match (t1, t2) with
+    | (RString, RString) -> true
+    | (RStruct struct_id1, RStruct struct_id2) -> (
+      match (lookup_struct_option struct_id1 c, lookup_struct_option struct_id2 c) with
+        | (Some field_list1, Some field_list2) -> (
+            let contained b field = 
+              let found = match lookup_field_option struct_id1 field.fieldName c with 
+                  | Some _ -> true
+                  | None   -> false
+              in
+              b && found
+            in
+            (* Checks whether the names of the structure struct_id2 are all contained inside the structure s1 *)
+            let subtype_condition = List.fold_left contained true field_list2 in
+            
+            if subtype_condition 
+            then (*
+                  TODO: Is this step even necessary?
+
+                  let struct1_ok = typecheck_tdecl c struct_id1 field_list1 (no_loc t1) in
+                  let struct2_ok = typecheck_tdecl c struct_id2 field_list2 (no_loc t2) in
+                  struct1_ok && struct2_ok 
+                  *)
+                  true
+            else false
+          )
+        | _ -> false
+      )
+  | (RArray ty1, RArray ty2)  -> true
+  | (RFun (ty_list1, ret_ty1), RFun (ty_list2, ret_ty2)) -> 
+    (* For argument subtype check the args of the second list must be subtypes 
+        of the corresponding args of the first list
+    *)
+    let args_ok = List.fold_left2 (fun b t' t -> b && (subtype c t' t)) true ty_list2 ty_list1 in
+    let rt_ok = subtype_ret c ret_ty1 ret_ty2 in
+    args_ok && rt_ok
+  | _ -> false
+
+and subtype_ret (c : Tctxt.t) (t1 : Ast.ret_ty) (t2 : Ast.ret_ty) : bool =
+  match (t1, t2) with
+  | (RetVoid, RetVoid) -> true
+  | (RetVal ty1, RetVal ty2) -> subtype c ty1 ty2
+      
 
 
 (* well-formed types -------------------------------------------------------- *)
