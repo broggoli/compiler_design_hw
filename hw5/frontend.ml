@@ -276,7 +276,11 @@ let rec cmp_exp (tc : TypeCtxt.t) (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.ope
        of the array struct representation.
   *)
   | Ast.Length e ->
-    failwith "todo:implement Ast.Length case"
+    let arr_ty, arr_op, arr_code = cmp_exp tc c e in
+    let size_ptr, size_id = gensym "size_ptr", gensym "size" in
+    let size_ptr_code = I(size_ptr, Gep(arr_ty, arr_op, [i64_op_of_int 0; i64_op_of_int 0])) in
+    let deref_code = I(size_id, Load(Ptr I64, Id size_ptr)) in
+    I64, Id size_id, arr_code >:: size_ptr_code >:: deref_code
 
   | Ast.Index (e, i) ->
     let ans_ty, ptr_op, code = cmp_exp_lhs tc c exp in
