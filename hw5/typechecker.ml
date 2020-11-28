@@ -325,6 +325,13 @@ let create_struct_ctxt (p:Ast.prog) : Tctxt.t =
     )
   in List.fold_left typecheck_decl empty p
 
+let typecheck_ftyp tc fdecl_node = 
+  let {frtyp = frtyp; fname = fname; args = args} = fdecl_node.elt in
+  let args_ty = fst (List.split args) in
+  typecheck_ret_ty fdecl_node tc frtyp;
+  List.iter (typecheck_ty fdecl_node tc) args_ty;
+  TRef (RFun (args_ty, frtyp))
+
 let create_function_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
   let typecheck_decl tc d = 
     match d with
@@ -334,7 +341,7 @@ let create_function_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
       let {frtyp = frtyp; fname = fname; args = args} = n.elt in
       match lookup_global_option fname tc with
       | Some _ -> type_error n ("Function redefined: " ^ fname)
-      | None -> add_global tc fname (TRef (RFun (fst (List.split(args)), frtyp)))
+      | None -> add_global tc fname (typecheck_ftyp tc n)
     )
   in List.fold_left typecheck_decl tc p
 
@@ -343,7 +350,7 @@ let create_global_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
     match d with
     | Gtdecl _ | Gfdecl _ -> tc
     | Gvdecl n -> (
-      (* TODO: do I even need to typechecl gdecl ? *)
+      (* TODO: typecheck gexp? *)
       let {name = name; init = init} = n.elt in
       match lookup_global_option name tc with
       | Some _ -> type_error n ("Variable redefined: " ^ name)
