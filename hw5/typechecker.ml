@@ -100,8 +100,6 @@ and subtype_ret (c : Tctxt.t) (t1 : Ast.ret_ty) (t2 : Ast.ret_ty) : bool =
   match (t1, t2) with
   | (RetVoid, RetVoid) -> true
   | (RetVal ty1, RetVal ty2) -> subtype c ty1 ty2
-      
-
 
 (* well-formed types -------------------------------------------------------- *)
 (* Implement a (set of) functions that check that types are well formed according
@@ -172,7 +170,57 @@ and typecheck_ret_ty (l : 'a Ast.node) (tc : Tctxt.t) (t : Ast.ret_ty) : unit =
 
 *)
 let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
-  failwith "todo: implement typecheck_exp"
+  let check_ty ty = typecheck_ty e c ty in
+  let typecheck_exp_ty c e ty =
+    let exp_ty = typecheck_exp c e in 
+    if  exp_ty = ty then ()
+    else type_error e ("expected: " ^ (string_of_ty exp_ty) ^ " but got: " ^ (string_of_ty ty))
+  in let subtypecheck_exp_ty c e ty = 
+    let exp_ty = typecheck_exp c e in 
+    (* is it ok not to remove G and L? *)
+    if (subtype c exp_ty ty) then ()
+    else type_error e ("expected: " ^ (string_of_ty exp_ty) ^ " but got: " ^ (string_of_ty ty))
+  in let typecheck_exp_arr c arr =
+    match typecheck_exp c arr with
+    | TRef (RArray t) -> t
+    | t -> type_error arr ("expected array type but got: " ^ string_of_ty t)
+  in
+  match e.elt with
+  | CNull rty -> check_ty (TRef rty); TNullRef rty
+  | CBool _ -> TBool
+  | CInt _ -> TInt
+  | CStr _ -> TRef RString
+  | Id id -> (
+    (* auto checks local first, then global *)
+    match lookup_option id c with
+    | Some ty -> ty
+    | None -> type_error e ("Id not in Context: " ^ id)
+  )
+  | CArr (ty, exps) -> (
+    check_ty ty;
+    List.iter (fun exp -> subtypecheck_exp_ty c exp ty) exps;
+    TRef (RArray ty)
+  )
+  | NewArr (ty, len, i, init) -> (
+    check_ty ty;
+    typecheck_exp_ty c len TInt;
+    begin 
+      match lookup_local_option i c with
+      | None -> ()
+      | Some _ -> type_error e ("Id already in local context: " ^ i)
+    end;
+    subtypecheck_exp_ty (add_local c i TInt) init ty;
+    TRef (RArray ty)
+  )
+  | Index (arr, ind) -> (
+    typecheck_exp_ty c ind TInt;
+    typecheck_exp_arr c arr
+  )
+  | Length arr -> (
+    ignore (typecheck_exp_arr c arr);
+    TInt
+  )
+  | _ -> failwith "todo: implement typecheck_exp"
 
 (* statements --------------------------------------------------------------- *)
 
