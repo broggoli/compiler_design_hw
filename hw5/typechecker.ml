@@ -313,7 +313,17 @@ let typecheck_fdecl (tc : Tctxt.t) (f : Ast.fdecl) (l : 'a Ast.node) : unit =
    constants, but can't mention other global values *)
 
 let create_struct_ctxt (p:Ast.prog) : Tctxt.t =
-  failwith "todo: create_struct_ctxt"
+  let typecheck_decl tc d = 
+    match d with
+    | Gvdecl _ | Gfdecl _ -> tc
+    | Gtdecl n -> (
+      let {elt = (id, fs)} = n in
+      typecheck_tdecl tc id fs n;
+      match lookup_struct_option id tc with
+      | Some _ -> type_error n ("Struct redefined: " ^ id)
+      | None -> add_struct tc id fs
+    )
+  in List.fold_left typecheck_decl empty p
 
 let create_function_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
   failwith "todo: create_function_ctxt"
