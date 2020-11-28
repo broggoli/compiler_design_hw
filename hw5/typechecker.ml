@@ -336,10 +336,20 @@ let create_function_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
       | Some _ -> type_error n ("Function redefined: " ^ fname)
       | None -> add_global tc fname (TRef (RFun (fst (List.split(args)), frtyp)))
     )
-  in List.fold_left typecheck_decl empty p
+  in List.fold_left typecheck_decl tc p
 
 let create_global_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
-  failwith "todo: create_function_ctxt"
+  let typecheck_decl tc d = 
+    match d with
+    | Gtdecl _ | Gfdecl _ -> tc
+    | Gvdecl n -> (
+      (* TODO: do I even need to typechecl gdecl ? *)
+      let {name = name; init = init} = n.elt in
+      match lookup_global_option name tc with
+      | Some _ -> type_error n ("Variable redefined: " ^ name)
+      | None ->  add_global tc name (typecheck_exp tc init)
+    )
+  in List.fold_left typecheck_decl tc p
 
 
 (* This function implements the |- prog and the H ; G |- prog 
