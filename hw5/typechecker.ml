@@ -326,7 +326,17 @@ let create_struct_ctxt (p:Ast.prog) : Tctxt.t =
   in List.fold_left typecheck_decl empty p
 
 let create_function_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
-  failwith "todo: create_function_ctxt"
+  let typecheck_decl tc d = 
+    match d with
+    | Gvdecl _ | Gtdecl _ -> tc
+    | Gfdecl n -> (
+      typecheck_fdecl tc n.elt n;
+      let {frtyp = frtyp; fname = fname; args = args} = n.elt in
+      match lookup_global_option fname tc with
+      | Some _ -> type_error n ("Function redefined: " ^ fname)
+      | None -> add_global tc fname (TRef (RFun (fst (List.split(args)), frtyp)))
+    )
+  in List.fold_left typecheck_decl empty p
 
 let create_global_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
   failwith "todo: create_function_ctxt"
