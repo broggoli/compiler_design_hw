@@ -286,7 +286,14 @@ let rec typecheck_stmt (tc : Tctxt.t) (s:Ast.stmt node) (to_ret:ret_ty) : Tctxt.
     else type_error s ("can't assign exp of type " ^ (string_of_ty exp_ty) ^ " to variable of type " ^ (string_of_ty lhs_ty))
   )
   | Decl vdecl -> (typecheck_decl tc vdecl), false
-  | Ret exp_opt -> failwith "todo: implement typecheck_stmt Ret"
+  | Ret exp_opt -> (
+    match exp_opt, to_ret with
+    | None, RetVoid -> tc, true
+    | Some exp, RetVal rt -> 
+      if subtype tc (typecheck_exp tc exp) rt then tc, true
+      else type_error s "returned of wrong type"
+    | _ -> type_error s "returned of wrong type"
+  )
   | SCall (f, args) -> failwith "todo: implement typecheck_stmt SCall"
   | If (test, then_stmts, else_stmts) -> failwith "todo: implement typecheck_stmt If"
   | Cast (rty, id, exp, then_stmts, else_stmts) -> failwith "todo: implement typecheck_stmt Cast"
