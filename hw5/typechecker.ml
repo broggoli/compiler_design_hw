@@ -325,8 +325,32 @@ let rec typecheck_stmt (tc : Tctxt.t) (s:Ast.stmt node) (to_ret:ret_ty) : Tctxt.
     let r2 = typecheck_block tc to_ret else_stmts in
     tc, r1 && r2
   )
-  | For (vdecls, test_opt, post_opt, body) -> failwith "todo: implement typecheck_stmt For"
-  | While (test, body) -> failwith "todo: implement typecheck_stmt While"
+  | For (vdecls, test_opt, post_opt, body) -> (
+    (* can't reuse while, because of L_2 ! *)
+    (* H;G;L_1 |- vdecls => L_2 *)
+    let tc' = typecheck_vdecls tc vdecls in
+    (* H;G;L_2 |- exp : bool *)
+    let test = match test_opt with | Some t -> t | None -> no_loc (CBool true) in
+    (* H;G;L_2;rt |- stmt => L_3, false *)
+    begin
+      match post_opt with
+      | Some stmt -> (
+        match typecheck_stmt tc' stmt to_ret with
+        | _, false -> ()
+        | _, true -> type_error s "post statement of for shouldn't return"
+      )
+      | None -> ()
+    end;
+    (* H;G;L_2;rt |- block;r *)
+    let _ = typecheck_block tc' to_ret body in
+    tc, false
+
+  )
+  | While (test, body) -> (
+    typecheck_exp_ty tc test TBool;
+    let _ = typecheck_block tc to_ret body in
+    tc, false;
+  )
 
 and typecheck_block tc rt stmt_nodes : bool = 
 
