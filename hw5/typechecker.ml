@@ -268,7 +268,15 @@ let typecheck_vdecls c vdecls =
   List.fold_left typecheck_decl c vdecls
 
 let rec typecheck_stmt (tc : Tctxt.t) (s:Ast.stmt node) (to_ret:ret_ty) : Tctxt.t * bool =
-  failwith "todo: implement typecheck_stmt"
+  match s.elt with
+  | Assn (lhs, exp) -> failwith "todo: implement typecheck_stmt Assn"
+  | Decl vdecl -> (typecheck_decl tc vdecl), false
+  | Ret exp_opt -> failwith "todo: implement typecheck_stmt Ret"
+  | SCall (f, args) -> failwith "todo: implement typecheck_stmt SCall"
+  | If (test, then_stmts, else_stmts) -> failwith "todo: implement typecheck_stmt If"
+  | Cast (rty, id, exp, then_stmts, else_stmts) -> failwith "todo: implement typecheck_stmt Cast"
+  | For (vdecls, test_opt, post_opt, body) -> failwith "todo: implement typecheck_stmt For"
+  | While (test, body) -> failwith "todo: implement typecheck_stmt While"
 
 let typecheck_block tc rt stmt_nodes : bool = 
 
