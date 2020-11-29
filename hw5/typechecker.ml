@@ -542,10 +542,21 @@ let create_global_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
     | Gtdecl _ | Gfdecl _ -> tc
     | Gvdecl n -> (
       (* TODO: typecheck gexp? *)
+      let rec contains_gid exp_node = match exp_node.elt with
+      | CNull _ | CBool _ | CInt _ | CStr _ -> ()
+      | Id id -> (
+        match typecheck_exp tc exp_node with
+        | TRef (RFun _) -> ()
+        | _ -> type_error exp_node "gexp can't contains global variables"
+      )
+      | CArr (_, exps) -> List.iter contains_gid exps
+      | CStruct (_, fields) -> List.iter contains_gid (snd (List.split fields))
+      | _ -> type_error exp_node "this is not a gexp"
+      in 
       let {name = name; init = init} = n.elt in
       match lookup_global_option name tc with
       | Some _ -> type_error n ("Variable redefined: " ^ name)
-      | None ->  add_global tc name (typecheck_exp tc init)
+      | None ->  contains_gid init; add_global tc name (typecheck_exp tc init)
     )
   in List.fold_left typecheck_decl tc p
 
