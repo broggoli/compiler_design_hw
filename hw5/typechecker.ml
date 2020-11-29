@@ -261,7 +261,7 @@ let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
 let typecheck_decl c vdecl =
   let id, exp_node = vdecl in
   let ty = typecheck_exp c exp_node in
-  not_in_local id c;
+  not_in_local id c exp_node;
   add_local c id ty
 
 let typecheck_vdecls c vdecls = 
@@ -269,7 +269,22 @@ let typecheck_vdecls c vdecls =
 
 let rec typecheck_stmt (tc : Tctxt.t) (s:Ast.stmt node) (to_ret:ret_ty) : Tctxt.t * bool =
   match s.elt with
-  | Assn (lhs, exp) -> failwith "todo: implement typecheck_stmt Assn"
+  | Assn (lhs, exp) -> (
+    (* TODO: probably wrong *)
+    let lhs_test = function
+      | Id _ | Index _ | Proj _ -> ()
+      | _ -> type_error lhs ("Expression not assignable" ^ (string_of_exp lhs))
+    in let global_fun_test = function
+      | TRef (RFun _) -> type_error lhs ("Can't assign to global function " ^ (string_of_exp lhs))
+      | _ -> ()
+    in
+    lhs_test lhs.elt;
+    let lhs_ty = typecheck_exp tc lhs in
+    global_fun_test lhs_ty;
+    let exp_ty = typecheck_exp tc exp in
+    if (subtype tc exp_ty lhs_ty) then tc, false
+    else type_error s ("can't assign exp of type " ^ (string_of_ty exp_ty) ^ " to variable of type " ^ (string_of_ty lhs_ty))
+  )
   | Decl vdecl -> (typecheck_decl tc vdecl), false
   | Ret exp_opt -> failwith "todo: implement typecheck_stmt Ret"
   | SCall (f, args) -> failwith "todo: implement typecheck_stmt SCall"
