@@ -39,6 +39,8 @@ let typ_of_unop : Ast.unop -> Ast.ty * Ast.ty = function
 
 let typ_of_fun (args_ty, ret_ty) = TRef (RFun (args_ty, ret_ty))
 
+let field_to_pair {fieldName = fieldName; ftyp = ftyp} = (fieldName, ftyp)
+
 (* subtyping ---------------------------------------------------------------- *)
 (* Decides whether H |- t1 <: t2 
     - assumes that H contains the declarations of all the possible struct types
@@ -215,7 +217,21 @@ let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
     ignore (typecheck_exp_arr c arr);
     TInt
   )
-  | CStruct (sname, inits) -> failwith "todo: implement typecheck_exp CStruct"
+  | CStruct (sname, inits) -> (
+    (* structS{t1x1;..;tnxn} in H *)
+    let fields = match lookup_struct_option sname c with
+    | None -> type_error e ("struct not in context " ^ sname)
+    | Some fields -> fields
+    in
+    (* fields may be permuted undernew -> sorting *)
+    let field_names, field_tys = List.split @@ List.sort compare (List.map field_to_pair fields) in
+    let init_names, init_exps = List.split @@ List.sort compare inits in
+    (* check identifier equality *)
+    if field_names <> init_names then type_error e ("struct init names not matching " ^ sname) else
+    (* H;G;L |- expi:t'i *) (* H |- t'i <= ti *)
+    List.iter2 (subtypecheck_exp_ty c) init_exps field_tys;
+    TRef (RStruct sname)
+  )
   | Proj (strct, fname) -> (
     (* H;G;L |- exp:S *)
     let id = match typecheck_exp c strct  with
