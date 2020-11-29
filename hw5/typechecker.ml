@@ -209,7 +209,40 @@ let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
     ignore (typecheck_exp_arr c arr);
     TInt
   )
-  | _ -> failwith "todo: implement typecheck_exp"
+  | CStruct (sname, inits) -> failwith "todo: implement typecheck_exp CStruct"
+  | Proj (strct, fname) -> failwith "todo: implement typecheck_exp Proj"
+  | Call (func, args) -> failwith "todo: implement typecheck_exp Call"
+  | Bop (op, exp1, exp2) -> (
+    match op with
+    | Eq | Neq -> (
+      (* H;G;L |- exp1:t1 *)
+      let t1 = typecheck_exp c exp1 in
+      (* H;G;L |- exp2:t2 *)
+      let t2 = typecheck_exp c exp2 in
+      (* H |- t1 <= t2 *)
+      subtypecheck_ty_ty c t1 t2;
+      (* H |- t2 <= t1 *)
+      subtypecheck_ty_ty c t2 t1;
+      TBool
+    )
+    | op -> (
+      (* |- bop:(t1,t2) -> t*)
+      let in1_ty, in2_ty, out_ty = typ_of_binop op in
+      (* H;G;L |- exp1:t1 *)
+      typecheck_exp_ty c exp1 in1_ty;
+      (* H;G;L |- exp2:t2 *)
+      typecheck_exp_ty c exp2 in2_ty;
+      out_ty
+    )
+  )
+  | Uop (op, exp) -> (
+    (* |- uop:(t) -> t *)
+    let in_ty, out_ty = typ_of_unop op in
+    (* H;G;L |- exp:t *)
+    typecheck_exp_ty c exp in_ty;
+    (* H;G;L |- uop exp:t *)
+    out_ty
+  )
 
 and typecheck_exp_ty c e ty =
   let exp_ty = typecheck_exp c e in 
