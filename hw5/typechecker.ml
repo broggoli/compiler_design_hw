@@ -72,7 +72,7 @@ and subtype_ref (c : Tctxt.t) (t1 : Ast.rty) (t2 : Ast.rty) : bool =
           )
         | _ -> false
       )
-  | (RArray ty1, RArray ty2)  -> true
+  | (RArray ty1, RArray ty2)  -> ty1 = ty2
   | (RFun (ty_list1, ret_ty1), RFun (ty_list2, ret_ty2)) -> 
     (* For argument subtype check the args of the second list must be subtypes 
         of the corresponding args of the first list
