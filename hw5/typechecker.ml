@@ -100,6 +100,7 @@ and subtype_ret (c : Tctxt.t) (t1 : Ast.ret_ty) (t2 : Ast.ret_ty) : bool =
   match (t1, t2) with
   | (RetVoid, RetVoid) -> true
   | (RetVal ty1, RetVal ty2) -> subtype c ty1 ty2
+  | _ -> false
 
 (* well-formed types -------------------------------------------------------- *)
 (* Implement a (set of) functions that check that types are well formed according
@@ -141,7 +142,6 @@ and typecheck_ret_ty (l : 'a Ast.node) (tc : Tctxt.t) (t : Ast.ret_ty) : unit =
   match t with
   | RetVoid -> ()
   | RetVal ty -> typecheck_ty l tc ty
-  | _ -> type_error l "wrong return type."
 
 
 (* typechecking expressions ------------------------------------------------- *)
@@ -229,9 +229,9 @@ let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
       (* H;G;L |- exp2:t2 *)
       let t2 = typecheck_exp c exp2 in
       (* H |- t1 <= t2 *)
-      subtypecheck_ty_ty c t1 t2;
+      subtypecheck_ty_ty c t1 t2 e;
       (* H |- t2 <= t1 *)
-      subtypecheck_ty_ty c t2 t1;
+      subtypecheck_ty_ty c t2 t1 e;
       TBool
     )
     | op -> (
@@ -362,7 +362,7 @@ let rec typecheck_stmt (tc : Tctxt.t) (s:Ast.stmt node) (to_ret:ret_ty) : Tctxt.
     | TNullRef r -> r
     | _ -> type_error s "not a possible null reference type"
     in 
-    subtypecheck_ty_ty tc (TRef rty') (TRef rty) s;
+    subtypecheck_ty_ty tc (TRef rty') (TRef rty) exp;
     let r1 = typecheck_block (add_local tc id (TRef rty)) to_ret then_stmts in
     let r2 = typecheck_block tc to_ret else_stmts in
     tc, r1 && r2
@@ -373,6 +373,7 @@ let rec typecheck_stmt (tc : Tctxt.t) (s:Ast.stmt node) (to_ret:ret_ty) : Tctxt.
     let tc' = typecheck_vdecls tc vdecls in
     (* H;G;L_2 |- exp : bool *)
     let test = match test_opt with | Some t -> t | None -> no_loc (CBool true) in
+    typecheck_exp_ty tc' test TBool;
     (* H;G;L_2;rt |- stmt => L_3, false *)
     begin
       match post_opt with
