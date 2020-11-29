@@ -222,6 +222,10 @@ and subtypecheck_exp_ty c e ty =
   if (subtype c exp_ty ty) then ()
   else type_error e ("expected: " ^ (string_of_ty exp_ty) ^ " but got: " ^ (string_of_ty ty))
 
+and subtypecheck_ty_ty c t1 t2 (l : 'a node) =
+  if (subtype c t1 t2) then ()
+  else type_error l ("expected: " ^ (string_of_ty t1) ^ " but got: " ^ (string_of_ty t2))
+
 and typecheck_exp_arr c arr =
   match typecheck_exp c arr with
   | TRef (RArray t) -> t
@@ -311,7 +315,16 @@ let rec typecheck_stmt (tc : Tctxt.t) (s:Ast.stmt node) (to_ret:ret_ty) : Tctxt.
     let r2 = typecheck_block tc to_ret else_stmts in
     tc, r1 && r2
   )
-  | Cast (rty, id, exp, then_stmts, else_stmts) -> failwith "todo: implement typecheck_stmt Cast"
+  | Cast (rty, id, exp, then_stmts, else_stmts) -> (
+    let rty' = match typecheck_exp tc exp with
+    | TNullRef r -> r
+    | _ -> type_error s "not a possible null reference type"
+    in 
+    subtypecheck_ty_ty tc (TRef rty') (TRef rty) s;
+    let r1 = typecheck_block (add_local tc id (TRef rty)) to_ret then_stmts in
+    let r2 = typecheck_block tc to_ret else_stmts in
+    tc, r1 && r2
+  )
   | For (vdecls, test_opt, post_opt, body) -> failwith "todo: implement typecheck_stmt For"
   | While (test, body) -> failwith "todo: implement typecheck_stmt While"
 
