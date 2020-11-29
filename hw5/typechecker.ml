@@ -258,6 +258,19 @@ let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
 let rec typecheck_stmt (tc : Tctxt.t) (s:Ast.stmt node) (to_ret:ret_ty) : Tctxt.t * bool =
   failwith "todo: implement typecheck_stmt"
 
+let typecheck_block tc rt stmt_nodes : bool = 
+
+  let rec typecheck_stmts tc stmts to_ret = match stmts with
+  | [] -> tc, false
+  | s :: [] -> typecheck_stmt tc s to_ret
+  | s :: n :: tl -> (
+    let tc' , returns = typecheck_stmt tc s to_ret in
+    if returns
+    then type_error n "statement unreachable"
+    else typecheck_stmts tc' (n::tl) to_ret
+  )
+  in
+  snd @@ typecheck_stmts tc stmt_nodes rt
 
 (* struct type declarations ------------------------------------------------- *)
 (* Here is an example of how to implement the TYP_TDECLOK rule, which is 
@@ -293,10 +306,10 @@ let typecheck_fdecl (tc : Tctxt.t) (f : Ast.fdecl) (l : 'a Ast.node) : unit =
   if check_dups_id args_name
   then type_error l ("Repeated argument in " ^ fname)
   else (
-    let tc' = List.fold_left2 add_local tc args_name args_ty in ()
-    (*if typecheck_block tc' frtyp body
+    let tc' = List.fold_left2 add_local tc args_name args_ty in
+    if typecheck_block tc' frtyp body
     then ()
-    else type_error l ("Function is not guaranteed to return: " ^ fname)*)
+    else type_error l ("Function is not guaranteed to return: " ^ fname)
   )
 
 (* creating the typchecking context ----------------------------------------- *)
