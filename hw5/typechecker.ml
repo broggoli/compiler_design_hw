@@ -282,8 +282,22 @@ let typecheck_tdecl (tc : Tctxt.t) id fs  (l : 'a Ast.node) : unit =
     - typechecks the body of the function (passing in the expected return type
     - checks that the function actually returns
 *)
+
+let rec check_dups_id = function
+  | [] -> false
+  | h :: t -> (List.mem h t) || check_dups_id t
+
 let typecheck_fdecl (tc : Tctxt.t) (f : Ast.fdecl) (l : 'a Ast.node) : unit =
-  failwith "todo: typecheck_fdecl"
+  let {frtyp = frtyp; fname = fname; args = args; body = body} = f in
+  let args_ty, args_name = List.split args in
+  if check_dups_id args_name
+  then type_error l ("Repeated argument in " ^ fname)
+  else (
+    let tc' = List.fold_left2 add_local tc args_name args_ty in ()
+    (*if typecheck_block tc' frtyp body
+    then ()
+    else type_error l ("Function is not guaranteed to return: " ^ fname)*)
+  )
 
 (* creating the typchecking context ----------------------------------------- *)
 
@@ -327,7 +341,7 @@ let create_struct_ctxt (p:Ast.prog) : Tctxt.t =
 
 let typecheck_ftyp tc fdecl_node = 
   let {frtyp = frtyp; fname = fname; args = args} = fdecl_node.elt in
-  let args_ty = fst (List.split args) in
+  let args_ty, _ = List.split args in
   typecheck_ret_ty fdecl_node tc frtyp;
   List.iter (typecheck_ty fdecl_node tc) args_ty;
   TRef (RFun (args_ty, frtyp))
