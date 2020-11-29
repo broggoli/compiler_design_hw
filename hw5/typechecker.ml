@@ -211,7 +211,16 @@ let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
   )
   | CStruct (sname, inits) -> failwith "todo: implement typecheck_exp CStruct"
   | Proj (strct, fname) -> failwith "todo: implement typecheck_exp Proj"
-  | Call (func, args) -> failwith "todo: implement typecheck_exp Call"
+  | Call (func, args_exp) -> (
+    (* H;G;L |- exp:(t1, .. ,tn) -> t *)
+    let args_ty, ty = match typecheck_exp c func with
+    | TRef (RFun (args_ty, RetVal ty)) -> args_ty, ty
+    | _ -> type_error e "not a function type"
+    in
+    (* H;G;L |- exp_i:t_i *) (* H |- t′_i <= t_i *)
+    List.iter2 (subtypecheck_exp_ty c) args_exp args_ty;
+    ty
+  )
   | Bop (op, exp1, exp2) -> (
     match op with
     | Eq | Neq -> (
