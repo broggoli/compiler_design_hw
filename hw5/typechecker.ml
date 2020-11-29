@@ -67,26 +67,8 @@ and subtype_ref (c : Tctxt.t) (t1 : Ast.rty) (t2 : Ast.rty) : bool =
     | (RStruct struct_id1, RStruct struct_id2) -> (
       match (lookup_struct_option struct_id1 c, lookup_struct_option struct_id2 c) with
         | (Some field_list1, Some field_list2) -> (
-            let contained b field = 
-              let found = match lookup_field_option struct_id1 field.fieldName c with 
-                  | Some _ -> true
-                  | None   -> false
-              in
-              b && found
-            in
-            (* Checks whether the names of the structure struct_id2 are all contained inside the structure s1 *)
-            let subtype_condition = List.fold_left contained true field_list2 in
-            
-            if subtype_condition 
-            then (*
-                  TODO: Is this step even necessary?
-
-                  let struct1_ok = typecheck_tdecl c struct_id1 field_list1 (no_loc t1) in
-                  let struct2_ok = typecheck_tdecl c struct_id2 field_list2 (no_loc t2) in
-                  struct1_ok && struct2_ok 
-                  *)
-                  true
-            else false
+          let in_list1 field = List.mem field field_list1 in
+          List.for_all in_list1 field_list2
           )
         | _ -> false
       )
