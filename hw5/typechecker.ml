@@ -305,12 +305,17 @@ let rec typecheck_stmt (tc : Tctxt.t) (s:Ast.stmt node) (to_ret:ret_ty) : Tctxt.
     in List.iter2 (subtypecheck_exp_ty tc) arg_exps arg_tys;
     tc, false
   )
-  | If (test, then_stmts, else_stmts) -> failwith "todo: implement typecheck_stmt If"
+  | If (test, then_stmts, else_stmts) -> (
+    typecheck_exp_ty tc test TBool;
+    let r1 = typecheck_block tc to_ret then_stmts in
+    let r2 = typecheck_block tc to_ret else_stmts in
+    tc, r1 && r2
+  )
   | Cast (rty, id, exp, then_stmts, else_stmts) -> failwith "todo: implement typecheck_stmt Cast"
   | For (vdecls, test_opt, post_opt, body) -> failwith "todo: implement typecheck_stmt For"
   | While (test, body) -> failwith "todo: implement typecheck_stmt While"
 
-let typecheck_block tc rt stmt_nodes : bool = 
+and typecheck_block tc rt stmt_nodes : bool = 
 
   let rec typecheck_stmts tc stmts to_ret = match stmts with
   | [] -> tc, false
