@@ -37,6 +37,8 @@ let typ_of_unop : Ast.unop -> Ast.ty * Ast.ty = function
   | Neg | Bitnot -> (TInt, TInt)
   | Lognot       -> (TBool, TBool)
 
+let typ_of_fun (args_ty, ret_ty) = TRef (RFun (args_ty, ret_ty))
+
 (* subtyping ---------------------------------------------------------------- *)
 (* Decides whether H |- t1 <: t2 
     - assumes that H contains the declarations of all the possible struct types
@@ -507,6 +509,10 @@ let typecheck_ftyp tc fdecl_node =
   TRef (RFun (args_ty, frtyp))
 
 let create_function_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
+  (* can we assume that builtins are well-typed? *)
+  let fnames, ftys = List.split builtins in
+  let fun_tys = List.map typ_of_fun ftys in
+  let tc' = List.fold_left2 add_global tc fnames fun_tys in
   let typecheck_decl tc d = 
     match d with
     | Gvdecl _ | Gtdecl _ -> tc
@@ -517,7 +523,7 @@ let create_function_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
       | Some _ -> type_error n ("Function redefined: " ^ fname)
       | None -> add_global tc fname (typecheck_ftyp tc n)
     )
-  in List.fold_left typecheck_decl tc p
+  in List.fold_left typecheck_decl tc' p
 
 let create_global_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
   let typecheck_decl tc d = 
