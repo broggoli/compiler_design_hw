@@ -177,6 +177,10 @@ let not_in_local id c n =
   | None -> ()
   | Some _ -> type_error n ("Id already in local context: " ^ id)
 
+let match_len list_a list_b l = 
+  if (List.length list_a) = (List.length list_b) then ()
+  else type_error l "have different amount of vars"
+
 let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
   let check_ty ty = typecheck_ty e c ty in
   
@@ -230,6 +234,7 @@ let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
     | _ -> type_error e "not a function type"
     in
     (* H;G;L |- exp_i:t_i *) (* H |- t′_i <= t_i *)
+    match_len args_exp args_ty e;
     List.iter2 (subtypecheck_exp_ty c) args_exp args_ty;
     ty
   )
@@ -360,7 +365,9 @@ let rec typecheck_stmt (tc : Tctxt.t) (s:Ast.stmt node) (to_ret:ret_ty) : Tctxt.
     let arg_tys = match fty with
     | TRef (RFun (args, RetVoid)) -> args
     | _ -> type_error s "not a void function"
-    in List.iter2 (subtypecheck_exp_ty tc) arg_exps arg_tys;
+    in 
+    match_len arg_exps arg_tys s;
+    List.iter2 (subtypecheck_exp_ty tc) arg_exps arg_tys;
     tc, false
   )
   | If (test, then_stmts, else_stmts) -> (
