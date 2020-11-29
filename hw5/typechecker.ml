@@ -545,9 +545,12 @@ let create_global_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
       let rec contains_gid exp_node = match exp_node.elt with
       | CNull _ | CBool _ | CInt _ | CStr _ -> ()
       | Id id -> (
-        match typecheck_exp tc exp_node with
-        | TRef (RFun _) -> ()
-        | _ -> type_error exp_node "gexp can't contains global variables"
+        let is_id : decl -> bool = function
+        | Gtdecl _ | Gfdecl _ -> false
+        | Gvdecl {elt = {name = name}} -> name = id
+        in
+        if List.exists is_id p then type_error exp_node "gexp can't contains global variables"
+        else ()
       )
       | CArr (_, exps) -> List.iter contains_gid exps
       | CStruct (_, fields) -> List.iter contains_gid (snd (List.split fields))
