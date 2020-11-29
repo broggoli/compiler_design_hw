@@ -336,18 +336,24 @@ let typecheck_vdecls c vdecls =
 let rec typecheck_stmt (tc : Tctxt.t) (s:Ast.stmt node) (to_ret:ret_ty) : Tctxt.t * bool =
   match s.elt with
   | Assn (lhs, exp) -> (
-    (* TODO: probably wrong *)
-    let lhs_test = function
-      | Id _ | Index _ | Proj _ -> ()
-      | _ -> type_error lhs ("Expression not assignable" ^ (string_of_exp lhs))
-    in let global_fun_test = function
-      | TRef (RFun _) -> type_error lhs ("Can't assign to global function " ^ (string_of_exp lhs))
-      | _ -> ()
-    in
-    lhs_test lhs.elt;
+    (* H;G;L |- lhs:t *)
     let lhs_ty = typecheck_exp tc lhs in
-    global_fun_test lhs_ty;
+    begin (* lhs grammar check *)
+      match lhs.elt with
+        | Index _ | Proj _ -> ()
+        | Id id -> (
+          match (lookup_local_option id tc), lhs_ty with
+          (* lhs:t in L *)
+          | (Some _), _ -> ()
+          | None , (TRef (RFun _)) -> type_error lhs ("Can't assign to global function " ^ (string_of_exp lhs))
+          (* lhs not a function id *)
+          | _ -> ()
+        )
+        | _ -> type_error lhs ("Expression not assignable" ^ (string_of_exp lhs))
+    end;
+    (* H;G;L |- exp:t' *)
     let exp_ty = typecheck_exp tc exp in
+    (* H |- t' <= t *)
     if (subtype tc exp_ty lhs_ty) then tc, false
     else type_error s ("can't assign exp of type " ^ (string_of_ty exp_ty) ^ " to variable of type " ^ (string_of_ty lhs_ty))
   )
