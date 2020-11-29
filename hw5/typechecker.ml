@@ -210,7 +210,17 @@ let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
     TInt
   )
   | CStruct (sname, inits) -> failwith "todo: implement typecheck_exp CStruct"
-  | Proj (strct, fname) -> failwith "todo: implement typecheck_exp Proj"
+  | Proj (strct, fname) -> (
+    (* H;G;L |- exp:S *)
+    let id = match typecheck_exp c strct  with
+    | TRef (RStruct id) -> id
+    | _ -> type_error e "not a struct type"
+    in
+    (* struct S{fields} in H *) (* t x in fields *)
+    match lookup_field_option id fname c with
+    | None -> type_error e ("field " ^ fname ^ " not in struct " ^ id)
+    | Some field_ty -> field_ty
+  )
   | Call (func, args_exp) -> (
     (* H;G;L |- exp:(t1, .. ,tn) -> t *)
     let args_ty, ty = match typecheck_exp c func with
