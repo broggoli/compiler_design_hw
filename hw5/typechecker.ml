@@ -169,6 +169,12 @@ and typecheck_ret_ty (l : 'a Ast.node) (tc : Tctxt.t) (t : Ast.ret_ty) : unit =
    a=1} is well typed.  (You should sort the fields to compare them.)
 
 *)
+
+let not_in_local id c n = 
+  match lookup_local_option id c with
+  | None -> ()
+  | Some _ -> type_error n ("Id already in local context: " ^ id)
+
 let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
   let check_ty ty = typecheck_ty e c ty in
   let typecheck_exp_ty c e ty =
@@ -204,11 +210,7 @@ let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
   | NewArr (ty, len, i, init) -> (
     check_ty ty;
     typecheck_exp_ty c len TInt;
-    begin 
-      match lookup_local_option i c with
-      | None -> ()
-      | Some _ -> type_error e ("Id already in local context: " ^ i)
-    end;
+    not_in_local i c e;
     subtypecheck_exp_ty (add_local c i TInt) init ty;
     TRef (RArray ty)
   )
@@ -255,6 +257,16 @@ let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
    - You will probably find it convenient to add a helper function that implements the 
      block typecheck rules.
 *)
+
+let typecheck_decl c vdecl =
+  let id, exp_node = vdecl in
+  let ty = typecheck_exp c exp_node in
+  not_in_local id c;
+  add_local c id ty
+
+let typecheck_vdecls c vdecls = 
+  List.fold_left typecheck_decl c vdecls
+
 let rec typecheck_stmt (tc : Tctxt.t) (s:Ast.stmt node) (to_ret:ret_ty) : Tctxt.t * bool =
   failwith "todo: implement typecheck_stmt"
 
