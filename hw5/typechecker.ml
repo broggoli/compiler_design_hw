@@ -177,20 +177,7 @@ let not_in_local id c n =
 
 let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
   let check_ty ty = typecheck_ty e c ty in
-  let typecheck_exp_ty c e ty =
-    let exp_ty = typecheck_exp c e in 
-    if  exp_ty = ty then ()
-    else type_error e ("expected: " ^ (string_of_ty exp_ty) ^ " but got: " ^ (string_of_ty ty))
-  in let subtypecheck_exp_ty c e ty = 
-    let exp_ty = typecheck_exp c e in 
-    (* is it ok not to remove G and L? *)
-    if (subtype c exp_ty ty) then ()
-    else type_error e ("expected: " ^ (string_of_ty exp_ty) ^ " but got: " ^ (string_of_ty ty))
-  in let typecheck_exp_arr c arr =
-    match typecheck_exp c arr with
-    | TRef (RArray t) -> t
-    | t -> type_error arr ("expected array type but got: " ^ string_of_ty t)
-  in
+  
   match e.elt with
   | CNull rty -> check_ty (TRef rty); TNullRef rty
   | CBool _ -> TBool
@@ -223,6 +210,22 @@ let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
     TInt
   )
   | _ -> failwith "todo: implement typecheck_exp"
+
+and typecheck_exp_ty c e ty =
+  let exp_ty = typecheck_exp c e in 
+  if  exp_ty = ty then ()
+  else type_error e ("expected: " ^ (string_of_ty exp_ty) ^ " but got: " ^ (string_of_ty ty))
+
+and subtypecheck_exp_ty c e ty = 
+  let exp_ty = typecheck_exp c e in 
+  (* is it ok not to remove G and L? *)
+  if (subtype c exp_ty ty) then ()
+  else type_error e ("expected: " ^ (string_of_ty exp_ty) ^ " but got: " ^ (string_of_ty ty))
+
+and typecheck_exp_arr c arr =
+  match typecheck_exp c arr with
+  | TRef (RArray t) -> t
+  | t -> type_error arr ("expected array type but got: " ^ string_of_ty t)
 
 (* statements --------------------------------------------------------------- *)
 
@@ -294,7 +297,14 @@ let rec typecheck_stmt (tc : Tctxt.t) (s:Ast.stmt node) (to_ret:ret_ty) : Tctxt.
       else type_error s "returned of wrong type"
     | _ -> type_error s "returned of wrong type"
   )
-  | SCall (f, args) -> failwith "todo: implement typecheck_stmt SCall"
+  | SCall (f, arg_exps) -> (
+    let fty = typecheck_exp tc f in
+    let arg_tys = match fty with
+    | TRef (RFun (args, RetVoid)) -> args
+    | _ -> type_error s "not a void function"
+    in List.iter2 (subtypecheck_exp_ty tc) arg_exps arg_tys;
+    tc, false
+  )
   | If (test, then_stmts, else_stmts) -> failwith "todo: implement typecheck_stmt If"
   | Cast (rty, id, exp, then_stmts, else_stmts) -> failwith "todo: implement typecheck_stmt Cast"
   | For (vdecls, test_opt, post_opt, body) -> failwith "todo: implement typecheck_stmt For"
