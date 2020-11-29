@@ -492,7 +492,7 @@ let create_struct_ctxt (p:Ast.prog) : Tctxt.t =
     | Gvdecl _ | Gfdecl _ -> tc
     | Gtdecl n -> (
       let {elt = (id, fs)} = n in
-      typecheck_tdecl tc id fs n;
+      (* REMOVE: will be done later: typecheck_tdecl tc id fs n; *)
       match lookup_struct_option id tc with
       | Some _ -> type_error n ("Struct redefined: " ^ id)
       | None -> add_struct tc id fs
@@ -511,7 +511,7 @@ let create_function_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
     match d with
     | Gvdecl _ | Gtdecl _ -> tc
     | Gfdecl n -> (
-      typecheck_fdecl tc n.elt n;
+      (* REMOVE: will be done later: typecheck_fdecl tc n.elt n; *)
       let {frtyp = frtyp; fname = fname; args = args} = n.elt in
       match lookup_global_option fname tc with
       | Some _ -> type_error n ("Function redefined: " ^ fname)
