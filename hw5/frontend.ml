@@ -320,18 +320,19 @@ let rec cmp_exp (tc : TypeCtxt.t) (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.ope
     let _, size_op, size_code = cmp_exp tc c e1 in
     let arr_ty, arr_op, alloc_code = oat_alloc_array tc elt_ty size_op in
 
-    let id_init = no_loc @@ Decl (id, no_loc (CInt 0L)) in  (* var id = 0;*)
-
-    let index_in_bounds = no_loc (Bop (Lt, no_loc (Id id), e1)) in
     let lcond, lbody, lpost = gensym "cond", gensym "body", gensym "post" in
-    let local_id, index_ptr, bop = gensym "local_id", gensym "index_ptr", gensym "bop" in
+    let local_id, index_ptr, bop, index_in_bound = gensym "local_id", gensym "index_ptr", gensym "bop", gensym "index_in_bound" in
+
+    let id_init = no_loc @@ Decl (id, no_loc (CInt 0L)) in  (* var id = 0;*)
     let local_context, id_init_code = cmp_stmt tc c Void id_init in
-    let _, index_in_bounds_op, index_in_bounds_code = cmp_exp tc local_context index_in_bounds in
+
     let (_, ctxt_id) = Ctxt.lookup id local_context  in 
-    let load_index_code = lift [ 
+
+    let index_check_code = lift [
         local_id, Load (Ptr I64, ctxt_id)
-        (* TODO: fix Gep *)
-      ; index_ptr, Gep (Ptr (Struct [I64; Array(0, I64)]), arr_op, [Const 0L; Const 1L; Id local_id])
+      ; index_in_bound, Icmp (Slt, I64, Id local_id, size_op)]
+    in
+    let load_index_code = lift [index_ptr, Gep (arr_ty, arr_op, [Const 0L; Const 1L; Id local_id])
     ] in
     let exp_ty, exp_op, exp_code = cmp_exp tc local_context e2 in
     let save_in_array_code = lift [ 
@@ -343,11 +344,10 @@ let rec cmp_exp (tc : TypeCtxt.t) (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.ope
     let body_code = load_index_code >@ exp_code >@ save_in_array_code in
     let loop_code = []
       >:: T (Br lcond)
-      >:: L lcond >@ index_in_bounds_code >:: T (Cbr (index_in_bounds_op, lbody, lpost))
+      >:: L lcond >@ index_check_code >:: T (Cbr (Id index_in_bound, lbody, lpost))
       >:: L lbody >@ body_code  >:: T (Br lcond)
       >:: L lpost
     in
-    print_endline "rasd";
     arr_ty, arr_op, size_code >@ alloc_code >@ id_init_code >@ loop_code
     
    (* STRUCT TASK: complete this code that compiles struct expressions.
@@ -389,7 +389,6 @@ and cmp_exp_lhs (tc : TypeCtxt.t) (c:Ctxt.t) (e:exp node) : Ll.ty * Ll.operand *
      be thrown...)
   *)
   | Ast.Index (e, i) ->
-    Astlib.print_exp @@ no_loc (Ast.Index (e, i));
     let arr_ty, arr_op, arr_code = cmp_exp tc c e in
     let _, ind_op, ind_code = cmp_exp tc c i in
     let ans_ty = match arr_ty with 
