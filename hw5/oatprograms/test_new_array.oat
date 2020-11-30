@@ -1,0 +1,4 @@
+string program () {
+  var r = new int[5]{i -> i};
+  return string_of_array (r);
+}

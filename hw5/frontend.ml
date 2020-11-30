@@ -132,7 +132,6 @@ let rec cmp_ty (ct : TypeCtxt.t) : Ast.ty -> Ll.ty = function
   | Ast.TRef r -> Ptr (cmp_rty ct r)
   | Ast.TNullRef r -> Ptr (cmp_rty ct r)
 
-
 and cmp_ret_ty ct : Ast.ret_ty -> Ll.ty = function
   | Ast.RetVoid  -> Void
   | Ast.RetVal t -> cmp_ty ct t
@@ -317,7 +316,25 @@ let rec cmp_exp (tc : TypeCtxt.t) (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.ope
   | Ast.NewArr (elt_ty, e1, id, e2) ->    
     let _, size_op, size_code = cmp_exp tc c e1 in
     let arr_ty, arr_op, alloc_code = oat_alloc_array tc elt_ty size_op in
-    arr_ty, arr_op, size_code >@ alloc_code
+    (*
+      var size = length(a);
+      for(var id = 0; id < size; id = id + 1;) {
+          a[id] = e2;
+      }
+    *)
+    let array_sym = gensym "tmp_array_sym" in
+    (* TODO: fix the array indexing*)
+    let augmented_ctxt = Ctxt.add c array_sym (Ptr(arr_ty), arr_op) in
+    let loop_ast =  
+      For (
+        [id, no_loc (CInt 0L)],  (* var id = 0; *)
+        Some (no_loc (Bop (Lt, no_loc (Id id), e1))), (* id < size; [ size is not an actual variable ]*)
+        Some (no_loc (Assn (no_loc (Id id), no_loc (Bop (Add, no_loc (Id id), no_loc (CInt 1L)))))), (* id = id + 1;*)
+        [no_loc (Assn (no_loc (Index (no_loc (Id array_sym), no_loc (Id id))), e2))]) (* a[id] = e2; *)
+    in
+    let loop_node = no_loc loop_ast in
+    let _, init_loop_code = cmp_stmt tc augmented_ctxt Ll.Void loop_node in
+    arr_ty, arr_op, size_code >@ alloc_code >@ init_loop_code
 
    (* STRUCT TASK: complete this code that compiles struct expressions.
       For each field component of the struct
@@ -358,7 +375,19 @@ and cmp_exp_lhs (tc : TypeCtxt.t) (c:Ctxt.t) (e:exp node) : Ll.ty * Ll.operand *
      be thrown...)
   *)
   | Ast.Index (e, i) ->
+    Astlib.print_exp @@ no_loc (Ast.Index (e, i));
     let arr_ty, arr_op, arr_code = cmp_exp tc c e in
+    (match arr_ty with
+      | Void -> print_endline "void type"
+      | I1 -> print_endline "bool type"
+      | I8 -> print_endline "char type"
+      | I64 -> print_endline "int type"
+      | Ptr ty -> print_endline "ptr type"
+      | Struct ty_list -> print_endline "struct type"
+      | Array (i, ty) -> print_endline "array type"
+      | Fun (ty_list, ty) -> print_endline "function type"
+      | Namedt tid -> print_endline "Named type"
+    );
     let _, ind_op, ind_code = cmp_exp tc c i in
     let ans_ty = match arr_ty with 
       | Ptr (Struct [_; Array (_,t)]) -> t 
