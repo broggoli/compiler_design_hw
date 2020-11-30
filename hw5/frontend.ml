@@ -171,9 +171,6 @@ let gensym : string -> string =
 *)
 let size_oat_ty (t : Ast.ty) = 8L
 
-
-
-
 (* Generate code to allocate an array of source type TRef (RArray t) of the
    given size. Note "size" is an operand whose value can be computed at
    runtime *)
@@ -189,13 +186,19 @@ let oat_alloc_array ct (t:Ast.ty) (size:Ll.operand) : Ll.ty * operand * stream =
 (* STRUCT TASK: Complete this helper function that allocates an oat structure on the 
    heap and returns a target operand with the appropriate reference.  
    
-   - generate a call to 'oat_malloc' and use bitcast to conver the
+   - generate a call to 'oat_malloc' and use bitcast to convert the
      resulting pointer to the right type
 
    - make sure to calculate the correct amount of space to allocate!
 *)
 let oat_alloc_struct ct (id:Ast.id) : Ll.ty * operand * stream =
-  failwith "TODO: oat_alloc_struct"
+  let ans_id, struct_id = gensym "struct", gensym "raw_struct" in
+  let ans_ty = cmp_ty ct @@ TRef (RStruct id) in
+  let struct_size = Int64.of_int @@ List.length @@ TypeCtxt.lookup id ct in
+  let arr_ty = Ptr I64 in
+  ans_ty, Id ans_id, lift
+    [ struct_id, Call(arr_ty, Gid "oat_malloc", [I64, Const struct_size])
+    ; ans_id, Bitcast(arr_ty, Id struct_id, ans_ty) ]
 
 
 let str_arr_ty s = Array(1 + String.length s, I8)
@@ -316,26 +319,37 @@ let rec cmp_exp (tc : TypeCtxt.t) (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.ope
   | Ast.NewArr (elt_ty, e1, id, e2) ->    
     let _, size_op, size_code = cmp_exp tc c e1 in
     let arr_ty, arr_op, alloc_code = oat_alloc_array tc elt_ty size_op in
-    (*
-      var size = length(a);
-      for(var id = 0; id < size; id = id + 1;) {
-          a[id] = e2;
-      }
-    *)
-    let array_sym = gensym "tmp_array_sym" in
-    (* TODO: fix the array indexing*)
-    let augmented_ctxt = Ctxt.add c array_sym (Ptr(arr_ty), arr_op) in
-    let loop_ast =  
-      For (
-        [id, no_loc (CInt 0L)],  (* var id = 0; *)
-        Some (no_loc (Bop (Lt, no_loc (Id id), e1))), (* id < size; [ size is not an actual variable ]*)
-        Some (no_loc (Assn (no_loc (Id id), no_loc (Bop (Add, no_loc (Id id), no_loc (CInt 1L)))))), (* id = id + 1;*)
-        [no_loc (Assn (no_loc (Index (no_loc (Id array_sym), no_loc (Id id))), e2))]) (* a[id] = e2; *)
-    in
-    let loop_node = no_loc loop_ast in
-    let _, init_loop_code = cmp_stmt tc augmented_ctxt Ll.Void loop_node in
-    arr_ty, arr_op, size_code >@ alloc_code >@ init_loop_code
 
+    let id_init = no_loc @@ Decl (id, no_loc (CInt 0L)) in  (* var id = 0;*)
+
+    let index_in_bounds = no_loc (Bop (Lt, no_loc (Id id), e1)) in
+    let lcond, lbody, lpost = gensym "cond", gensym "body", gensym "post" in
+    let local_id, index_ptr, bop = gensym "local_id", gensym "index_ptr", gensym "bop" in
+    let local_context, id_init_code = cmp_stmt tc c Void id_init in
+    let _, index_in_bounds_op, index_in_bounds_code = cmp_exp tc local_context index_in_bounds in
+    let (_, ctxt_id) = Ctxt.lookup id local_context  in 
+    let load_index_code = lift [ 
+        local_id, Load (Ptr I64, ctxt_id)
+        (* TODO: fix Gep *)
+      ; index_ptr, Gep (Ptr (Struct [I64; Array(0, I64)]), arr_op, [Const 0L; Const 1L; Id local_id])
+    ] in
+    let exp_ty, exp_op, exp_code = cmp_exp tc local_context e2 in
+    let save_in_array_code = lift [ 
+        gensym "", Store (exp_ty, exp_op, Id index_ptr)
+      ; bop, Binop (Add, I64, Id local_id, Const 1L)
+      ;  gensym "", Store (I64, Id bop, ctxt_id)
+    ]
+    in
+    let body_code = load_index_code >@ exp_code >@ save_in_array_code in
+    let loop_code = []
+      >:: T (Br lcond)
+      >:: L lcond >@ index_in_bounds_code >:: T (Cbr (index_in_bounds_op, lbody, lpost))
+      >:: L lbody >@ body_code  >:: T (Br lcond)
+      >:: L lpost
+    in
+    print_endline "rasd";
+    arr_ty, arr_op, size_code >@ alloc_code >@ id_init_code >@ loop_code
+    
    (* STRUCT TASK: complete this code that compiles struct expressions.
       For each field component of the struct
        - use the TypeCtxt operations to compute getelementptr indices
@@ -377,24 +391,17 @@ and cmp_exp_lhs (tc : TypeCtxt.t) (c:Ctxt.t) (e:exp node) : Ll.ty * Ll.operand *
   | Ast.Index (e, i) ->
     Astlib.print_exp @@ no_loc (Ast.Index (e, i));
     let arr_ty, arr_op, arr_code = cmp_exp tc c e in
-    (match arr_ty with
-      | Void -> print_endline "void type"
-      | I1 -> print_endline "bool type"
-      | I8 -> print_endline "char type"
-      | I64 -> print_endline "int type"
-      | Ptr ty -> print_endline "ptr type"
-      | Struct ty_list -> print_endline "struct type"
-      | Array (i, ty) -> print_endline "array type"
-      | Fun (ty_list, ty) -> print_endline "function type"
-      | Namedt tid -> print_endline "Named type"
-    );
     let _, ind_op, ind_code = cmp_exp tc c i in
     let ans_ty = match arr_ty with 
       | Ptr (Struct [_; Array (_,t)]) -> t 
       | _ -> failwith "Index: indexed into non pointer" in
-    let ptr_id, tmp_id = gensym "index_ptr", gensym "tmp" in
+    let ptr_id, tmp_id, cast_id = gensym "index_ptr", gensym "tmp", gensym "cast" in
     ans_ty, (Id ptr_id),
-    arr_code >@ ind_code >@ lift
+    arr_code 
+    >@ ind_code 
+    >@ lift [cast_id, Bitcast(arr_ty, arr_op, Ptr I64)
+      ; tmp_id, Call(Void, Gid "oat_assert_array_length", [Ptr I64, Id cast_id; I64, ind_op])]
+    >@ lift
       [ptr_id, Gep(arr_ty, arr_op, [i64_op_of_int 0; i64_op_of_int 1; ind_op]) ]
 
    
@@ -468,7 +475,17 @@ and cmp_stmt (tc : TypeCtxt.t) (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt
          merge label after either block
   *)
   | Ast.Cast (typ, id, exp, notnull, null) ->
-    failwith "todo: implement Ast.Cast case"
+    let exp_ty, exp_op, exp_code = cmp_exp tc c exp in
+    let not_null_ctxt = Ctxt.add c id (exp_ty, exp_op) in
+    let notnull_code = cmp_block tc not_null_ctxt rt notnull in
+    let null_code = cmp_block tc c rt null in
+    let lt, le, lm = gensym "notnull", gensym "null", gensym "merge" in
+    let guard_op = Const 0L in (*TODO: take branches*)
+    c, exp_code 
+      >:: T(Cbr (guard_op, lt, le))
+      >:: L lt >@ (*TODO?: save local variable in id*) notnull_code >:: T(Br lm) 
+      >:: L le >@ null_code >:: T(Br lm) 
+      >:: L lm
 
   | Ast.While (guard, body) ->
      let guard_ty, guard_op, guard_code = cmp_exp tc c guard in
