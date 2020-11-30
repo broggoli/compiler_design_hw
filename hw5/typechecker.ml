@@ -39,6 +39,8 @@ let typ_of_unop : Ast.unop -> Ast.ty * Ast.ty = function
 
 let typ_of_fun (args_ty, ret_ty) = TRef (RFun (args_ty, ret_ty))
 
+let field_to_pair {fieldName = fieldName; ftyp = ftyp} = (fieldName, ftyp)
+
 (* subtyping ---------------------------------------------------------------- *)
 (* Decides whether H |- t1 <: t2 
     - assumes that H contains the declarations of all the possible struct types
@@ -65,30 +67,12 @@ and subtype_ref (c : Tctxt.t) (t1 : Ast.rty) (t2 : Ast.rty) : bool =
     | (RStruct struct_id1, RStruct struct_id2) -> (
       match (lookup_struct_option struct_id1 c, lookup_struct_option struct_id2 c) with
         | (Some field_list1, Some field_list2) -> (
-            let contained b field = 
-              let found = match lookup_field_option struct_id1 field.fieldName c with 
-                  | Some _ -> true
-                  | None   -> false
-              in
-              b && found
-            in
-            (* Checks whether the names of the structure struct_id2 are all contained inside the structure s1 *)
-            let subtype_condition = List.fold_left contained true field_list2 in
-            
-            if subtype_condition 
-            then (*
-                  TODO: Is this step even necessary?
-
-                  let struct1_ok = typecheck_tdecl c struct_id1 field_list1 (no_loc t1) in
-                  let struct2_ok = typecheck_tdecl c struct_id2 field_list2 (no_loc t2) in
-                  struct1_ok && struct2_ok 
-                  *)
-                  true
-            else false
+          let in_list1 field = List.mem field field_list1 in
+          List.for_all in_list1 field_list2
           )
         | _ -> false
       )
-  | (RArray ty1, RArray ty2)  -> true
+  | (RArray ty1, RArray ty2)  -> ty1 = ty2
   | (RFun (ty_list1, ret_ty1), RFun (ty_list2, ret_ty2)) -> 
     (* For argument subtype check the args of the second list must be subtypes 
         of the corresponding args of the first list
@@ -215,7 +199,21 @@ let rec typecheck_exp (c : Tctxt.t) (e : Ast.exp node) : Ast.ty =
     ignore (typecheck_exp_arr c arr);
     TInt
   )
-  | CStruct (sname, inits) -> failwith "todo: implement typecheck_exp CStruct"
+  | CStruct (sname, inits) -> (
+    (* structS{t1x1;..;tnxn} in H *)
+    let fields = match lookup_struct_option sname c with
+    | None -> type_error e ("struct not in context " ^ sname)
+    | Some fields -> fields
+    in
+    (* fields may be permuted undernew -> sorting *)
+    let field_names, field_tys = List.split @@ List.sort compare (List.map field_to_pair fields) in
+    let init_names, init_exps = List.split @@ List.sort compare inits in
+    (* check identifier equality *)
+    if field_names <> init_names then type_error e ("struct init names not matching " ^ sname) else
+    (* H;G;L |- expi:t'i *) (* H |- t'i <= ti *)
+    List.iter2 (subtypecheck_exp_ty c) init_exps field_tys;
+    TRef (RStruct sname)
+  )
   | Proj (strct, fname) -> (
     (* H;G;L |- exp:S *)
     let id = match typecheck_exp c strct  with
@@ -336,18 +334,24 @@ let typecheck_vdecls c vdecls =
 let rec typecheck_stmt (tc : Tctxt.t) (s:Ast.stmt node) (to_ret:ret_ty) : Tctxt.t * bool =
   match s.elt with
   | Assn (lhs, exp) -> (
-    (* TODO: probably wrong *)
-    let lhs_test = function
-      | Id _ | Index _ | Proj _ -> ()
-      | _ -> type_error lhs ("Expression not assignable" ^ (string_of_exp lhs))
-    in let global_fun_test = function
-      | TRef (RFun _) -> type_error lhs ("Can't assign to global function " ^ (string_of_exp lhs))
-      | _ -> ()
-    in
-    lhs_test lhs.elt;
+    (* H;G;L |- lhs:t *)
     let lhs_ty = typecheck_exp tc lhs in
-    global_fun_test lhs_ty;
+    begin (* lhs grammar check *)
+      match lhs.elt with
+        | Index _ | Proj _ -> ()
+        | Id id -> (
+          match (lookup_local_option id tc), lhs_ty with
+          (* lhs:t in L *)
+          | (Some _), _ -> ()
+          | None , (TRef (RFun _)) -> type_error lhs ("Can't assign to global function " ^ (string_of_exp lhs))
+          (* lhs not a function id *)
+          | _ -> ()
+        )
+        | _ -> type_error lhs ("Expression not assignable" ^ (string_of_exp lhs))
+    end;
+    (* H;G;L |- exp:t' *)
     let exp_ty = typecheck_exp tc exp in
+    (* H |- t' <= t *)
     if (subtype tc exp_ty lhs_ty) then tc, false
     else type_error s ("can't assign exp of type " ^ (string_of_ty exp_ty) ^ " to variable of type " ^ (string_of_ty lhs_ty))
   )
@@ -538,10 +542,24 @@ let create_global_ctxt (tc:Tctxt.t) (p:Ast.prog) : Tctxt.t =
     | Gtdecl _ | Gfdecl _ -> tc
     | Gvdecl n -> (
       (* TODO: typecheck gexp? *)
+      let rec contains_gid exp_node = match exp_node.elt with
+      | CNull _ | CBool _ | CInt _ | CStr _ -> ()
+      | Id id -> (
+        let is_id : decl -> bool = function
+        | Gtdecl _ | Gfdecl _ -> false
+        | Gvdecl {elt = {name = name}} -> name = id
+        in
+        if List.exists is_id p then type_error exp_node "gexp can't contains global variables"
+        else ()
+      )
+      | CArr (_, exps) -> List.iter contains_gid exps
+      | CStruct (_, fields) -> List.iter contains_gid (snd (List.split fields))
+      | _ -> type_error exp_node "this is not a gexp"
+      in 
       let {name = name; init = init} = n.elt in
       match lookup_global_option name tc with
       | Some _ -> type_error n ("Variable redefined: " ^ name)
-      | None ->  add_global tc name (typecheck_exp tc init)
+      | None ->  contains_gid init; add_global tc name (typecheck_exp tc init)
     )
   in List.fold_left typecheck_decl tc p
 
