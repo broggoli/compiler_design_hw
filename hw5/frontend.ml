@@ -360,12 +360,14 @@ let rec cmp_exp (tc : TypeCtxt.t) (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.ope
     let struct_ty, struct_opnd, struct_alloc_code = oat_alloc_struct tc id in
 
     let aux b (field_id, exp) = 
-      let field_index = Int64.of_int @@ TypeCtxt.index_of_field id field_id tc in
+      let ast_field_ty, field_index = TypeCtxt.lookup_field_name id field_id tc in
+      let field_ty = cmp_ty tc ast_field_ty in
       let exp_ty, exp_op, exp_code = cmp_exp tc c exp in
-      let index_ptr = gensym "index_ptr" in
+      let index_ptr, casted_ptr = gensym "index_ptr", gensym "casted_ptr" in
       let save_code = lift [
           index_ptr, Gep (struct_ty, struct_opnd, [Const 0L; Const field_index])
-        ; gensym "", Store (exp_ty, exp_op, Id index_ptr)
+        ; casted_ptr, Bitcast (Ptr field_ty, Id index_ptr, Ptr exp_ty)
+        ; gensym "", Store (exp_ty, exp_op, Id casted_ptr)
       ] in
       let init_field_code = exp_code >@ save_code in
       init_field_code >@ b
@@ -395,7 +397,7 @@ and cmp_exp_lhs (tc : TypeCtxt.t) (c:Ctxt.t) (e:exp node) : Ll.ty * Ll.operand *
   | Ast.Proj (e, i) ->
     let Ptr (Namedt struct_id), struct_opnd, exp_code = cmp_exp tc c e in
     let ast_field_ty, field_index = TypeCtxt.lookup_field_name struct_id i tc in
-    let ll_field_ty = cmp_ty tc @@ ast_field_ty in
+    let ll_field_ty = cmp_ty tc ast_field_ty in
     let index_ptr = gensym "index_ptr" in
     let get_value_code = lift [index_ptr, Gep (Ptr (Namedt struct_id), struct_opnd, [Const 0L; Const field_index])] in
     ll_field_ty, Id index_ptr, exp_code >@ get_value_code
@@ -649,7 +651,16 @@ let rec cmp_gexp c (tc : TypeCtxt.t) (e:Ast.exp node) : Ll.gdecl * (Ll.gid * Ll.
 
   (* STRUCT TASK: Complete this code that generates the global initializers for a struct value. *)  
   | CStruct (id, cs) ->
-    failwith "todo: Cstruct case of cmp_gexp"
+    let gid = gensym "global_struct" in
+    let struct_ty = Namedt id in
+    let field_list = TypeCtxt.lookup id tc in
+    let elts, gs = List.fold_right
+        (fun (field_id, cst) (elts, gs) ->
+           let gd, gs' = cmp_gexp c tc cst in
+           gd::elts, gs' @ gs) cs ([], [])
+    in
+    let struct_i = GStruct elts in
+    (Ptr struct_ty, GGid gid), (gid, (struct_ty, struct_i))::gs
 
   | _ -> failwith "bad global initializer"
 

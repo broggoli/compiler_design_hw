@@ -1,0 +1,10 @@
+struct Test {
+  (int) -> int f
+}
+
+int neg() { return 0; }
+
+int program(int argc, string[] argv) {
+  var n = new Test {f=neg};
+  return n.f();
+} 
