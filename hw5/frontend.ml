@@ -357,7 +357,21 @@ let rec cmp_exp (tc : TypeCtxt.t) (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.ope
        - store the resulting value into the structure
    *)
   | Ast.CStruct (id, l) ->
-    failwith "TODO: Ast.CStruct"
+    let struct_ty, struct_opnd, struct_alloc_code = oat_alloc_struct tc id in
+
+    let aux b (field_id, exp) = 
+      let field_index = Int64.of_int @@ TypeCtxt.index_of_field id field_id tc in
+      let exp_ty, exp_op, exp_code = cmp_exp tc c exp in
+      let index_ptr = gensym "index_ptr" in
+      let save_code = lift [
+          index_ptr, Gep (struct_ty, struct_opnd, [Const 0L; Const field_index])
+        ; gensym "", Store (exp_ty, exp_op, Id index_ptr)
+      ] in
+      let init_field_code = exp_code >@ save_code in
+      init_field_code >@ b
+    in
+    let init_code = List.fold_left aux [] l in
+    struct_ty, struct_opnd, struct_alloc_code >@ init_code
 
   | Ast.Proj (e, id) ->
     let ans_ty, ptr_op, code = cmp_exp_lhs tc c exp in
@@ -379,7 +393,12 @@ and cmp_exp_lhs (tc : TypeCtxt.t) (c:Ctxt.t) (e:exp node) : Ll.ty * Ll.operand *
      You will find the TypeCtxt.lookup_field_name function helpful.
   *)
   | Ast.Proj (e, i) ->
-    failwith "todo: Ast.Proj case of cmp_exp_lhs"
+    let Ptr (Namedt struct_id), struct_opnd, exp_code = cmp_exp tc c e in
+    let ast_field_ty, field_index = TypeCtxt.lookup_field_name struct_id i tc in
+    let ll_field_ty = cmp_ty tc @@ ast_field_ty in
+    let index_ptr = gensym "index_ptr" in
+    let get_value_code = lift [index_ptr, Gep (Ptr (Namedt struct_id), struct_opnd, [Const 0L; Const field_index])] in
+    ll_field_ty, Id index_ptr, exp_code >@ get_value_code
 
 
   (* ARRAY TASK: Modify this index code to call 'oat_assert_array_length' before doing the 
