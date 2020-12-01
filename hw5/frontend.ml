@@ -499,10 +499,11 @@ and cmp_stmt (tc : TypeCtxt.t) (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt
     let not_null_ctxt = Ctxt.add c id (exp_ty, exp_op) in
     let notnull_code = cmp_block tc not_null_ctxt rt notnull in
     let null_code = cmp_block tc c rt null in
-    let lt, le, lm = gensym "notnull", gensym "null", gensym "merge" in
-    let guard_op = Const 0L in (*TODO: take branches*)
+    let lt, le, lm, guard_op = gensym "notnull", gensym "null", gensym "merge", gensym "guard_op" in
+    let test_code = lift [guard_op, Icmp (Eq, Void, exp_op, Null)] in
     c, exp_code 
-      >:: T(Cbr (guard_op, lt, le))
+      >@ test_code
+      >:: T(Cbr (Id guard_op, lt, le))
       >:: L lt >@ (*TODO?: save local variable in id*) notnull_code >:: T(Br lm) 
       >:: L le >@ null_code >:: T(Br lm) 
       >:: L lm
@@ -672,7 +673,7 @@ let internals =
   ; "oat_assert_array_length", Ll.Fun ([Ptr I64; I64], Void)
   ]
 
-(* Oat builtin function context --------------------------------------------- *)
+(* Oat Fin function context --------------------------------------------- *)
 let builtins = List.map
     (fun (fname, ftyp) -> 
       let args, ret = cmp_fty TypeCtxt.empty ftyp in

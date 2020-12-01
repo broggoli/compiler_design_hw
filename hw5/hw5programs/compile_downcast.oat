@@ -1,0 +1,13 @@
+struct Test {
+  int i
+}
+
+int program(int argc, string[] argv) {
+  var n = Test null;
+
+  if?(var x = n) {
+    return 0;
+  } else {
+    return 1;
+  }
+} 
