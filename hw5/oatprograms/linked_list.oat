@@ -1,0 +1,88 @@
+struct Node {
+    Node? next;
+    int value
+}
+global linkedList = new Node {
+    next = new Node {
+        next = new Node {
+            next = Node null;
+            value = 3
+        };
+        value = 2
+    };
+    value = 1
+};
+struct LL_OPs {
+    (Node?) -> int len;
+    (Node?) -> int sum;
+    (Node?, int) -> bool contains
+}
+
+global ops = new LL_OPs { len = len; sum = sum; contains = contains};
+
+int len(Node? ll) {
+    var sum = 0;
+
+    if?(Node first_node = ll){
+        var currNode = first_node;
+        var hasNext = true;
+        while(hasNext){
+            sum = sum + 1;
+            if?(Node next_node = currNode.next){
+                currNode = next_node;
+            } else {
+                hasNext = false;
+            }
+        }
+    }
+    return sum;    
+}
+
+bool contains(Node? ll, int value) {
+    if?(Node first_node = ll){
+        var currNode = first_node;
+        var hasNext = true;
+        while(hasNext){
+            if(currNode.value == value) {
+                return true;
+            }
+            if?(Node next_node = currNode.next){
+                currNode = next_node;
+            } else {
+                hasNext = false;
+            }
+        }
+    }
+    return false;
+}
+
+int sum(Node? ll) {
+    var sum = 0;
+    if?(Node first_node = ll){
+        var currNode = first_node;
+        var hasNext = true;
+        while(hasNext){
+            sum = sum + currNode.value;
+            if?(Node next_node = currNode.next){
+                currNode = next_node;
+            } else {
+                hasNext = false;
+            }
+        }
+    }
+    return sum;
+}
+
+int program(int argc, string[] argv) {
+    var len = ops.len(linkedList);
+
+    var sum = ops.sum(linkedList);
+
+    var contains_2 = ops.contains(linkedList, 2);
+
+    if(contains_2) {
+        return sum;
+    } else {
+        return len;
+    }
+}

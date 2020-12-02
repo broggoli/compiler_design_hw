@@ -5,7 +5,7 @@ struct Test {
 int program(int argc, string[] argv) {
   var n = Test null;
 
-  if?(var x = n) {
+  if?(Test x = n) {
     return 0;
   } else {
     return 1;

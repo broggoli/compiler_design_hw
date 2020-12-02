@@ -338,7 +338,7 @@ let rec cmp_exp (tc : TypeCtxt.t) (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.ope
     let save_in_array_code = lift [ 
         gensym "", Store (exp_ty, exp_op, Id index_ptr)
       ; bop, Binop (Add, I64, Id local_id, Const 1L)
-      ;  gensym "", Store (I64, Id bop, ctxt_id)
+      ; gensym "", Store (I64, Id bop, ctxt_id)
     ]
     in
     let body_code = load_index_code >@ exp_code >@ save_in_array_code in
@@ -496,15 +496,17 @@ and cmp_stmt (tc : TypeCtxt.t) (c:Ctxt.t) (rt:Ll.ty) (stmt:Ast.stmt node) : Ctxt
   *)
   | Ast.Cast (typ, id, exp, notnull, null) ->
     let exp_ty, exp_op, exp_code = cmp_exp tc c exp in
-    let not_null_ctxt = Ctxt.add c id (exp_ty, exp_op) in
-    let notnull_code = cmp_block tc not_null_ctxt rt notnull in
+    (*let not_null_ctxt = Ctxt.add c id (exp_ty, exp_op) in*)
+    let declare_id_code = no_loc @@ Decl ( id, exp) in
+    let notnull_branch_stmts = notnull >:: declare_id_code  in
+    let notnull_code = cmp_block tc c rt notnull_branch_stmts in
     let null_code = cmp_block tc c rt null in
     let lt, le, lm, guard_op = gensym "notnull", gensym "null", gensym "merge", gensym "guard_op" in
-    let test_code = lift [guard_op, Icmp (Eq, Void, exp_op, Null)] in
+    let test_code = lift [guard_op, Icmp (Ne, exp_ty, exp_op, Null)] in
     c, exp_code 
       >@ test_code
       >:: T(Cbr (Id guard_op, lt, le))
-      >:: L lt >@ (*TODO?: save local variable in id*) notnull_code >:: T(Br lm) 
+      >:: L lt >@ notnull_code >:: T(Br lm) 
       >:: L le >@ null_code >:: T(Br lm) 
       >:: L lm
 
