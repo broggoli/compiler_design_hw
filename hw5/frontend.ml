@@ -395,7 +395,11 @@ and cmp_exp_lhs (tc : TypeCtxt.t) (c:Ctxt.t) (e:exp node) : Ll.ty * Ll.operand *
      You will find the TypeCtxt.lookup_field_name function helpful.
   *)
   | Ast.Proj (e, i) ->
-    let Ptr (Namedt struct_id), struct_opnd, exp_code = cmp_exp tc c e in
+    let exp_ty, struct_opnd, exp_code = cmp_exp tc c e in
+    let struct_id = match exp_ty with
+      | Ptr (Namedt struct_id) -> struct_id
+      | _ -> failwith "This expression does not resolve to a struct, thus cannot be projected."
+    in
     let ast_field_ty, field_index = TypeCtxt.lookup_field_name struct_id i tc in
     let ll_field_ty = cmp_ty tc ast_field_ty in
     let index_ptr = gensym "index_ptr" in
@@ -656,7 +660,6 @@ let rec cmp_gexp c (tc : TypeCtxt.t) (e:Ast.exp node) : Ll.gdecl * (Ll.gid * Ll.
   | CStruct (id, cs) ->
     let gid = gensym "global_struct" in
     let struct_ty = Namedt id in
-    let field_list = TypeCtxt.lookup id tc in
     let elts, gs = List.fold_right
         (fun (field_id, cst) (elts, gs) ->
            let gd, gs' = cmp_gexp c tc cst in
