@@ -10,9 +10,8 @@ struct Test {
 int neg(int x) { return -x; }
 
 int program(int argc, string[] argv) {
-  var n = new Test {i=3; b=true; s="hello"; arr=new int[3]{j->0}; t=Test null; f=neg};
-  print_string(n.s);
-  if?(var x = n.i) {
+  var n = new Test {i=3; b=true; t=Test null; s="hello"; arr=new int[3]{j->0}; f=neg};
+  if?(Test x = n.t) {
     return 0;
   } else {
     return 1;

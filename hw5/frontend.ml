@@ -332,8 +332,7 @@ let rec cmp_exp (tc : TypeCtxt.t) (c:Ctxt.t) (exp:Ast.exp node) : Ll.ty * Ll.ope
         local_id, Load (Ptr I64, ctxt_id)
       ; index_in_bound, Icmp (Slt, I64, Id local_id, size_op)]
     in
-    let load_index_code = lift [index_ptr, Gep (arr_ty, arr_op, [Const 0L; Const 1L; Id local_id])
-    ] in
+    let load_index_code = lift [index_ptr, Gep (arr_ty, arr_op, [Const 0L; Const 1L; Id local_id])] in
     let exp_ty, exp_op, exp_code = cmp_exp tc local_context e2 in
     let save_in_array_code = lift [ 
         gensym "", Store (exp_ty, exp_op, Id index_ptr)
