@@ -88,6 +88,32 @@ module Make (Fact : FACT) (Graph : DFA_GRAPH with type fact := Fact.t) =
   struct
 
     let solve (g:Graph.t) : Graph.t =
-      failwith "TODO HW6: Solver.solve unimplemented"
+      (* Generate work list initialized to include every node*)
+      let work_list : Graph.NodeS.t = Graph.nodes g in
+      (* print_endline @@ Graph.NodeS.to_string worklist;*)
+
+      let rec aux (g: Graph.t) (work_list: Graph.NodeS.t) = 
+        let n_opt = Graph.NodeS.choose_opt work_list in
+        match n_opt with
+        | None -> g (* work list is empty -> return the finished computed graph *)
+        | Some n -> (
+            let old_out : Fact.t = Graph.out g n in
+            let prev_nodes = Graph.NodeS.elements (Graph.preds g n) in
+            let prev_facts = List.map (Graph.out g) prev_nodes in
+            let input : Fact.t = Fact.combine(prev_facts) in
+            let new_out = Graph.flow g n input in
+            let new_graph = Graph.add_fact n new_out g in
+            let new_work_list = 
+              if Fact.compare old_out new_out <> 0 
+              then 
+                let succs = Graph.succs g n in
+                Graph.NodeS.union succs (Graph.NodeS.remove n work_list) 
+              else 
+                Graph.NodeS.remove n work_list
+            in
+            aux new_graph new_work_list
+        )
+      in
+      aux g work_list
   end
 
