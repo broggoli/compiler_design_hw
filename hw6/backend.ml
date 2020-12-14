@@ -765,8 +765,10 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
                     |> remove (Alloc.LReg Rcx)
                    )
   in
-
+  let k = LocSet.cardinal pal in
   (* build graph *)
+
+  (* needed? *)
   let vertices : UidSet.t =
     fold_fdecl
       (fun ver _ -> ver)
@@ -798,12 +800,46 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
       (fun adj _ -> adj)
       UidMap.empty f
   in
+
+  (* convenience graph functions *)
+  let neigh v adj = (UidMap.find v adj) in
+  let small_deg v n = k > UidSet.cardinal n in
+  let rem v adj =
+    (* remove v in all neighbors *)
+    let rem_from_neigh w adj = UidMap.add w (UidSet.remove v (neigh w adj)) adj in
+    let adj' = UidSet.fold rem_from_neigh (neigh v adj) adj in
+    (* remove v and its neigbors *)
+    UidMap.remove v adj'
+  in
+  (* strategy to choose a node to remove if coloring fails *)
+  let annoying adj = fst (UidMap.choose adj) in
+
+  let color_empty = UidMap.empty in
   (* try coloring *)
-    (* find vertex deg v < k *)
-      (* remove v *)
-        (* try coloring *)
-      (* color v with a remaining color (heuristic?) *)
-    (* fail -> remove node r (heuristic?) *)
+  let rec color adj =
+    let rec kempe adj =
+      (* find vertex deg v < k *)
+      match UidMap.choose_opt (UidMap.filter small_deg adj) with
+      | None -> None
+      | Some (v, _) -> ((* remove v *) (* try coloring *)
+        match kempe (rem v adj) with
+        | None -> None
+        | Some col -> (
+          (* color v with a remaining color (heuristic?) *)
+          let used_locs = UidSet.fold (fun w l -> LocSet.add (UidMap.find w col) l) (neigh v adj) LocSet.empty in
+          let available_locs = LocSet.diff pal used_locs in
+          let loc = LocSet.choose available_locs in
+          Some (UidMap.add v loc col)
+        )
+      )
+    in
+    match kempe adj with
+    (* remove a node & restart *)
+    | None -> color (rem (annoying adj) adj)
+    | Some col -> col
+  in
+  let uid_to_loc = color adj_set in
+
 
   failwith "Backend.better_layout not implemented"
 
