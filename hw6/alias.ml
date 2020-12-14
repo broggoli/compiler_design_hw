@@ -34,11 +34,62 @@ type fact = SymPtr.t UidM.t
 
  *)
 let insn_flow ((u,i):uid * insn) (d:fact) : fact =
-  failwith "Alias.insn_flow unimplemented"
+  match i with 
+  (* After an alloca, the defined UID is the unique name for a stack slot *)
+  | Alloca _ ->  UidM.add u SymPtr.Unique d
+
+  | Bitcast (from_ty, opnd, to_ty) -> (
+    match (from_ty, opnd, to_ty) with
+    | (Ptr _, Id uid, ret_ty) -> 
+        let ret_ptr = match ret_ty with Ptr _ -> true | _ -> false in 
+        let res = UidM.update (fun x -> SymPtr.MayAlias) uid d in
+        if ret_ptr 
+        then UidM.add u SymPtr.MayAlias res
+        else res
+    | _ -> d
+  )
+  | Store (Ptr _, Id uid, _) -> UidM.update (fun x -> SymPtr.MayAlias) uid d
+  (* A pointer returned by a load, call, bitcast, or GEP may be aliased *)
+  | Load (Ptr (Ptr _), _) -> UidM.add u SymPtr.MayAlias d
+  | Call  (Ptr _, _, opnd_list) -> ( 
+      let aux (f:fact) (ty, uid) = 
+        match (ty, uid) with 
+        | Ptr _, Id id -> UidM.update (fun _ -> SymPtr.MayAlias) id f
+        | _   -> f
+      in
+      List.fold_left aux (UidM.add u SymPtr.MayAlias d) opnd_list
+    )
+  | Gep (Ptr _, opnd, _) -> (
+        let res = match opnd with
+          | Id uid -> UidM.update (fun _ -> SymPtr.MayAlias) uid d
+          | _ -> d
+        in
+        UidM.add u SymPtr.MayAlias res
+  )
+  | _ -> d
 
 
 (* The flow function across terminators is trivial: they never change alias info *)
 let terminator_flow t (d:fact) : fact = d
+
+let join_facts (d1: fact) (d2: fact) : fact = 
+  let f (key: uid) (s1: SymPtr.t option) (s2: SymPtr.t option) = 
+    let f' k v1 v2 = 
+      match (v1, v2) with 
+      | SymPtr.MayAlias, SymPtr.Unique
+      | SymPtr.Unique, SymPtr.MayAlias -> Some SymPtr.MayAlias
+      | SymPtr.Unique, SymPtr.UndefAlias 
+      | SymPtr.UndefAlias, SymPtr.Unique -> Some SymPtr.Unique
+      | SymPtr.UndefAlias, SymPtr.MayAlias
+      | SymPtr.MayAlias, SymPtr.UndefAlias -> Some SymPtr.MayAlias
+      | n, _ -> Some n
+    in
+    match (s1, s2) with
+    | None, None -> None
+    | (Some v), None | None, (Some v) -> Some v
+    | (Some v1), (Some v2) -> f' key v1 v2
+  in
+  UidM.merge f d1 d2 
 
 (* module for instantiating the generic framework --------------------------- *)
 module Fact =
@@ -69,7 +120,7 @@ module Fact =
        join of two SymPtr.t facts.
     *)
     let combine (ds:fact list) : fact =
-      failwith "Alias.Fact.combine not implemented"
+      List.fold_left join_facts UidM.empty ds
   end
 
 (* instantiate the general framework ---------------------------------------- *)
