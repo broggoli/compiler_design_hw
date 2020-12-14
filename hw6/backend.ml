@@ -740,6 +740,31 @@ let greedy_layout (f:Ll.fdecl) (live:liveness) : layout =
 *)
 
 let better_layout (f:Ll.fdecl) (live:liveness) : layout =
+  let n_arg = ref 0 in
+  let n_spill = ref 0 in
+
+  let spill () = (incr n_spill; Alloc.LStk (- !n_spill)) in
+
+  (* Allocates a destination location for an incoming function parameter.
+     Corner case: argument 3, in Rcx occupies a register used for other
+     purposes by the compiler.  We therefore always spill it.
+  *)
+  let alloc_arg () =
+    let res =
+      match arg_loc !n_arg with
+      | Alloc.LReg Rcx -> spill ()
+      | x -> x
+    in
+    incr n_arg; res
+  in
+  (* The available palette of registers.  Excludes Rax and Rcx *)
+  let pal = LocSet.(caller_save
+                    |> remove (Alloc.LReg Rax)
+                    |> remove (Alloc.LReg Rcx)
+                   )
+  in
+
+  
   failwith "Backend.better_layout not implemented"
 
 
