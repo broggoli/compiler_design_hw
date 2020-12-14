@@ -840,6 +840,22 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
   in
   let uid_to_loc = color adj_set in
 
+  (* Allocates remaining uid greedily based on interference information *)
+  let allocate_remaining uid_to_loc v =
+    let loc =
+      match UidMap.find_opt v uid_to_loc with
+      | Some l -> l
+      | None -> (
+        let colored_neighs = UidSet.filter (fun w -> UidMap.mem w uid_to_loc) (neigh v adj_set) in
+        let used_locs = UidSet.fold (fun w -> LocSet.add (UidMap.find w uid_to_loc)) colored_neighs LocSet.empty in
+        let available_locs = LocSet.diff pal used_locs in
+        match LocSet.choose_opt available_locs with
+        | Some l -> l
+        | None -> spill ()
+      )
+    in
+    Platform.verb @@ Printf.sprintf "allocated: %s <- %s\n" (Alloc.str_loc loc) v; loc
+  in
 
   failwith "Backend.better_layout not implemented"
 
