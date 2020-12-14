@@ -51,6 +51,7 @@ let str_operand = function
 
 module LocSet = Set.Make (struct type t = loc let compare = compare end)
 module UidSet = Datastructures.UidS
+module UidMap = Datastructures.UidM
 
 type fbody = (insn * LocSet.t) list
 
@@ -108,6 +109,7 @@ end
 
 module LocSet = Alloc.LocSet
 module UidSet = Alloc.UidSet
+module UidMap = Alloc.UidMap
 
 let str_locset (lo:LocSet.t) : string =
   String.concat " " (List.map Alloc.str_loc (LocSet.elements lo))
@@ -775,6 +777,26 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
         else ver)
       (fun ver _ -> ver)
       UidSet.empty f
+  in
+
+  let add_edge a b adj =
+    let adj' = UidMap.update_or UidSet.empty (UidSet.add a) b adj in
+    UidMap.update_or UidSet.empty (UidSet.add b) a adj'
+  in
+
+  let adj_set =
+    fold_fdecl
+      (fun adj _ -> adj)
+      (fun adj _ -> adj)
+      (fun adj (x, i) ->
+        if insn_assigns i
+        then (
+          let conflicts = live.live_in x in
+          let add_conflicts a adj' =  UidSet.fold (add_edge a) conflicts adj' in
+          UidSet.fold add_conflicts conflicts adj)
+        else adj)
+      (fun adj _ -> adj)
+      UidMap.empty f
   in
   (* try coloring *)
     (* find vertex deg v < k *)
