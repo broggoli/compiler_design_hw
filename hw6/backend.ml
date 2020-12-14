@@ -766,6 +766,16 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
                    )
   in
   let k = LocSet.cardinal pal in
+
+  let lo_init =
+    fold_fdecl
+      (fun lo (x, _) -> UidMap.add x (alloc_arg()) lo)
+      (fun lo l -> UidMap.add l (Alloc.LLbl (Platform.mangle l)) lo)
+      (fun lo _ -> lo)
+      (fun lo _ -> lo)
+      UidMap.empty f 
+  in
+
   (* build graph *)
   let add_edge a b adj =
     let adj' = UidMap.update_or UidSet.empty (UidSet.add a) b adj in
@@ -788,7 +798,6 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
 
   (* convenience graph functions *)
   let neigh v adj = (UidMap.find v adj) in
-  let small_deg v n = k > UidSet.cardinal n in
   let rem v adj =
     (* remove v in all neighbors *)
     let rem_from_neigh w adj = UidMap.add w (UidSet.remove v (neigh w adj)) adj in
@@ -799,22 +808,26 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
   (* strategy to choose a node to remove if coloring fails *)
   let annoying adj = fst (UidMap.choose adj) in
 
-  let color_empty = UidMap.empty in
   (* try coloring *)
   let rec color adj =
     let rec kempe adj =
-      (* find vertex deg v < k *)
-      match UidMap.choose_opt (UidMap.filter small_deg adj) with
-      | None -> None
-      | Some (v, _) -> ((* remove v *) (* try coloring *)
-        match kempe (rem v adj) with
+      if UidMap.is_empty adj 
+      then Some lo_init 
+      else (
+        (* find vertex deg v < k *)
+        let small_deg v n = k > UidSet.cardinal n in
+        match UidMap.choose_opt (UidMap.filter small_deg adj) with
         | None -> None
-        | Some col -> (
-          (* color v with a remaining color (heuristic?) *)
-          let used_locs = UidSet.fold (fun w l -> LocSet.add (UidMap.find w col) l) (neigh v adj) LocSet.empty in
-          let available_locs = LocSet.diff pal used_locs in
-          let loc = LocSet.choose available_locs in
-          Some (UidMap.add v loc col)
+        | Some (v, _) -> ((* remove v *) (* try coloring *)
+          match kempe (rem v adj) with
+          | None -> None
+          | Some col -> (
+            (* color v with a remaining color (heuristic?) *)
+            let used_locs = UidSet.fold (fun w l -> LocSet.add (UidMap.find w col) l) (neigh v adj) LocSet.empty in
+            let available_locs = LocSet.diff pal used_locs in
+            let loc = LocSet.choose available_locs in
+            Some (UidMap.add v loc col)
+          )
         )
       )
     in
@@ -826,11 +839,12 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
   let uid_to_loc = color adj_set in
 
   (* Allocates remaining uid greedily based on interference information *)
-  let allocate_remaining uid_to_loc v =
+  let allocate uid_to_loc v =
     let loc =
       match UidMap.find_opt v uid_to_loc with
       | Some l -> l
       | None -> (
+        (* greedy strategy *)
         let colored_neighs = UidSet.filter (fun w -> UidMap.mem w uid_to_loc) (neigh v adj_set) in
         let used_locs = UidSet.fold (fun w -> LocSet.add (UidMap.find w uid_to_loc)) colored_neighs LocSet.empty in
         let available_locs = LocSet.diff pal used_locs in
@@ -842,8 +856,20 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
     Platform.verb @@ Printf.sprintf "allocated: %s <- %s\n" (Alloc.str_loc loc) v; loc
   in
 
-  failwith "Backend.better_layout not implemented"
-
+  let lo = 
+    fold_fdecl
+      (fun lo _ -> lo)
+      (fun lo _ -> lo)
+      (fun lo (x, i) ->
+        if insn_assigns i 
+        then UidMap.add x (allocate lo x) lo
+        else UidMap.add x Alloc.LVoid lo)
+      (fun lo _ -> lo)
+      uid_to_loc f
+  in
+  { uid_loc = (fun x -> UidMap.find x lo)
+  ; spill_bytes = 8 * !n_spill
+  }
 
 
 (* register allocation options ---------------------------------------------- *)
