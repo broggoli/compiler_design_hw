@@ -764,7 +764,15 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
                    )
   in
 
+  (* build graph *)
   
+  (* try coloring *)
+    (* find vertex deg v < k *)
+      (* remove v *)
+        (* try coloring *)
+      (* color v with a remaining color (heuristic?) *)
+    (* fail -> remove node r (heuristic?) *)
+
   failwith "Backend.better_layout not implemented"
 
 
