@@ -767,25 +767,10 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
   in
   let k = LocSet.cardinal pal in
   (* build graph *)
-
-  (* needed? *)
-  let vertices : UidSet.t =
-    fold_fdecl
-      (fun ver _ -> ver)
-      (fun ver _ -> ver)
-      (fun ver (x, i) ->
-        if insn_assigns i
-        then UidSet.add x ver
-        else ver)
-      (fun ver _ -> ver)
-      UidSet.empty f
-  in
-
   let add_edge a b adj =
     let adj' = UidMap.update_or UidSet.empty (UidSet.add a) b adj in
     UidMap.update_or UidSet.empty (UidSet.add b) a adj'
   in
-
   let adj_set =
     fold_fdecl
       (fun adj _ -> adj)
