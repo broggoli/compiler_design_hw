@@ -765,7 +765,17 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
   in
 
   (* build graph *)
-  
+  let vertices : UidSet.t =
+    fold_fdecl
+      (fun ver _ -> ver)
+      (fun ver _ -> ver)
+      (fun ver (x, i) ->
+        if insn_assigns i
+        then UidSet.add x ver
+        else ver)
+      (fun ver _ -> ver)
+      UidSet.empty f
+  in
   (* try coloring *)
     (* find vertex deg v < k *)
       (* remove v *)
