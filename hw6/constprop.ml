@@ -37,7 +37,82 @@ type fact = SymConst.t UidM.t
    - Uid of all other instructions are NonConst-out
  *)
 let insn_flow (u,i:uid * insn) (d:fact) : fact =
-  failwith "Constprop.insn_flow unimplemented"
+  match i with
+  | Binop (bop, ty, operand1, operand2) -> (
+      let static_binop i j = 
+        match bop with 
+        | Add -> Int64.add i j
+        | Sub -> Int64.sub i j
+        | Mul -> Int64.mul i j
+        | Shl -> Int64.shift_left i (Int64.to_int j)
+        | Lshr -> Int64.shift_right_logical i (Int64.to_int j)
+        | Ashr -> Int64.shift_right i (Int64.to_int j)
+        | And -> Int64.logand i j
+        | Or -> Int64.logor i j
+        | Xor -> Int64.logxor i j
+      in
+      match (operand1, operand2) with
+      | Id uid1, Id uid2 -> (
+          let (Some symConst1), (Some symConst2) = UidM.find_opt uid1 d, UidM.find_opt uid2 d in
+          match (symConst1, symConst2) with
+          | Const i, Const j -> UidM.add u (SymConst.Const (static_binop i j)) d
+          | NonConst, _ | _, NonConst -> UidM.add u SymConst.NonConst d 
+          | UndefConst, _ | _, UndefConst -> UidM.add u SymConst.UndefConst d
+        )
+      | Id uid, Const j -> (
+        let (Some symConst) = UidM.find_opt uid d in
+        match symConst with
+          | Const i -> UidM.add u (SymConst.Const (static_binop i j)) d
+          | NonConst -> UidM.add u SymConst.NonConst d 
+          | UndefConst -> UidM.add u SymConst.UndefConst d
+      )
+      | Const i, Id uid -> (
+        let (Some symConst) = UidM.find_opt uid d in
+        match symConst with
+          | Const j -> UidM.add u (SymConst.Const (static_binop i j)) d
+          | NonConst -> UidM.add u SymConst.NonConst d 
+          | UndefConst -> UidM.add u SymConst.UndefConst d
+      )
+      | Const i, Const j -> UidM.add u (SymConst.Const (static_binop i j)) d
+  )
+  | Icmp (cnd, ty, operand1, operand2) -> (
+    let static_icmp i j = 
+      match cnd with 
+      | Eq -> if Int64.equal i j then 1L else 0L
+      | Ne -> if Int64.equal i j then 0L else 1L
+      | Slt -> if Int64.compare i j = -1 then 1L else 0L
+      | Sle -> if Int64.compare i j < 1 then 1L else 0L
+      | Sgt -> if Int64.compare i j = 1 then 1L else 0L
+      | Sge -> if Int64.compare i j > -1 then 1L else 0L
+    in
+    match (operand1, operand2) with
+    | Id uid1, Id uid2 -> (
+        let (Some symConst1), (Some symConst2) = UidM.find_opt uid1 d, UidM.find_opt uid2 d in
+        match (symConst1, symConst2) with
+        | Const i, Const j -> UidM.add u (SymConst.Const (static_icmp i j)) d
+        | NonConst, _ | _, NonConst -> UidM.add u SymConst.NonConst d 
+        | UndefConst, _ | _, UndefConst -> UidM.add u SymConst.UndefConst d
+      )
+    | Id uid, Const j -> (
+      let (Some symConst) = UidM.find_opt uid d in
+      match symConst with
+        | Const i -> UidM.add u (SymConst.Const (static_icmp i j)) d
+        | NonConst -> UidM.add u SymConst.NonConst d 
+        | UndefConst -> UidM.add u SymConst.UndefConst d
+    )
+    | Const i, Id uid -> (
+      let (Some symConst) = UidM.find_opt uid d in
+      match symConst with
+        | Const j -> UidM.add u (SymConst.Const (static_icmp i j)) d
+        | NonConst -> UidM.add u SymConst.NonConst d 
+        | UndefConst -> UidM.add u SymConst.UndefConst d
+    )
+    | Const i, Const j -> UidM.add u (SymConst.Const (static_icmp i j)) d
+  )
+  | Store _ -> UidM.add u SymConst.UndefConst d
+  | Call (Void, _, _) -> UidM.add u SymConst.UndefConst d
+
+  | _ -> UidM.add u SymConst.NonConst d
 
 (* The flow function across terminators is trivial: they never change const info *)
 let terminator_flow (t:terminator) (d:fact) : fact = d
