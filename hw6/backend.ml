@@ -815,7 +815,7 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
   (* try coloring *)
   let rec color adj =
     let rec kempe adj =
-      if (UidMap.cardinal adj <=  UidMap.cardinal lo_init)
+      if (UidMap.cardinal adj <=  !n_arg)
       then Some lo_init 
       else (
         (* find vertex deg v < k *)
