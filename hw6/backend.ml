@@ -782,18 +782,17 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
     UidMap.update_or UidSet.empty (UidSet.add b) a adj'
   in
   let adj_set =
-    fold_fdecl
-      (fun adj _ -> adj)
-      (fun adj _ -> adj)
-      (fun adj (x, i) ->
-        if insn_assigns i
-        then (
-          let conflicts = live.live_in x in
-          let add_conflicts a adj' =  UidSet.fold (add_edge a) conflicts adj' in
-          UidSet.fold add_conflicts conflicts adj)
-        else adj)
-      (fun adj _ -> adj)
-      UidMap.empty f
+    let vertices =
+      fold_fdecl
+        (fun ver (x, _) -> UidSet.add x ver)
+        (fun ver _ -> ver)
+        (fun ver (x, i) -> if insn_assigns i then UidSet.add x ver else ver)
+        (fun ver _ -> ver)
+        UidSet.empty f
+    in
+    let conflicts x = UidSet.remove x (live.live_in x) in
+    let add_conflicts a adj' =  UidSet.fold (add_edge a) (conflicts a) adj' in
+    UidSet.fold add_conflicts vertices UidMap.empty
   in
 
   (* convenience graph functions *)
@@ -823,6 +822,9 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
           | None -> None
           | Some col -> (
             (* color v with a remaining color (heuristic?) *)
+            Printf.printf "Neigh of %s:\n" v;
+            UidSet.iter (Printf.printf "%s\n") (neigh v adj);
+            UidMap.iter (fun x l -> Printf.printf "%s -> %s\n" x (Alloc.str_loc l)) col;
             let used_locs = UidSet.fold (fun w l -> LocSet.add (UidMap.find w col) l) (neigh v adj) LocSet.empty in
             let available_locs = LocSet.diff pal used_locs in
             let loc = LocSet.choose available_locs in
