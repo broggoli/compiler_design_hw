@@ -165,14 +165,6 @@ module AsGraph (D:AS_GRAPH_PARAMS) :
        an "edge" on which to put the entry/exit flow information.    *)
     let bound_lbl = "__bound"
 
-    (* The only way to create a flow graph is to provide an initial labeling *)
-    let of_cfg init flow_in cfg = 
-      let dfa = cfg.blocks
-                |> LblM.mapi (fun l _ -> init l) 
-                |> LblM.add bound_lbl flow_in
-      in
-      { cfg; dfa }
-
     (* Access to underlying cfg and facts map  *)
     let block g = block g.cfg
 
@@ -357,6 +349,19 @@ module AsGraph (D:AS_GRAPH_PARAMS) :
 
     let printer f g = 
       printer_annot (fun l -> D.to_string (out g l)) f g
+
+      (* The only way to create a flow graph is to provide an initial labeling *)
+    let of_cfg init flow_in cfg = 
+      let dfa = cfg.blocks
+                |> LblM.mapi (fun l _ -> init l) 
+                (* |> fun m -> print_endline @@ "asd: " ^ LblM.to_string (fun _ v -> D.to_string v) m; m *)
+                |> LblM.add bound_lbl flow_in
+                (* |> fun m -> print_endline @@ "asd2: " ^ LblM.to_string (fun _ v -> D.to_string v) m; m *)
+      in
+      (*print_endline @@ to_string {cfg; dfa};
+      print_endline @@ LblM.to_string (fun _ v -> D.to_string v) dfa;
+      print_endline @@ Graph.to_string { cfg; dfa };  *)
+      { cfg; dfa }
   end
 
 (* exported type *)

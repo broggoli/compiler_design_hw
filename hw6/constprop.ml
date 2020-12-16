@@ -37,6 +37,39 @@ type fact = SymConst.t UidM.t
    - Uid of all other instructions are NonConst-out
  *)
 let insn_flow (u,i:uid * insn) (d:fact) : fact =
+  let get_symConst : (SymConst.t option) -> SymConst.t = function
+  | Some symConst -> symConst
+  | None -> NonConst
+  in
+  let op_flow static_op : (Ll.operand * Ll.operand) -> fact = function
+      | Id uid1, Id uid2 -> (
+          let symConst1_opt, symConst2_opt = UidM.find_opt uid1 d, UidM.find_opt uid2 d in
+          let symConst1, symConst2 = get_symConst symConst1_opt, get_symConst symConst2_opt in
+
+          match (symConst1, symConst2) with
+          | Const i, Const j -> UidM.add u (SymConst.Const (static_op i j)) d
+          | NonConst, _ | _, NonConst -> UidM.add u SymConst.NonConst d 
+          | UndefConst, _ | _, UndefConst -> UidM.add u SymConst.UndefConst d
+        )
+      | Id uid, Const j -> (
+        let symConst_opt = UidM.find_opt uid d in
+        let symConst = get_symConst symConst_opt in
+        match symConst with
+          | Const i -> UidM.add u (SymConst.Const (static_op i j)) d
+          | NonConst -> UidM.add u SymConst.NonConst d 
+          | UndefConst -> UidM.add u SymConst.UndefConst d
+      )
+      | Const i, Id uid -> (
+        let symConst_opt = UidM.find_opt uid d in
+        let symConst = get_symConst symConst_opt in
+        match symConst with
+          | Const j -> UidM.add u (SymConst.Const (static_op i j)) d
+          | NonConst -> UidM.add u SymConst.NonConst d 
+          | UndefConst -> UidM.add u SymConst.UndefConst d
+      )
+      | Const i, Const j -> UidM.add u (SymConst.Const (static_op i j)) d
+      | _ -> UidM.add u SymConst.NonConst d
+  in
   match i with
   | Binop (bop, ty, operand1, operand2) -> (
       let static_binop i j = 
@@ -51,29 +84,7 @@ let insn_flow (u,i:uid * insn) (d:fact) : fact =
         | Or -> Int64.logor i j
         | Xor -> Int64.logxor i j
       in
-      match (operand1, operand2) with
-      | Id uid1, Id uid2 -> (
-          let (Some symConst1), (Some symConst2) = UidM.find_opt uid1 d, UidM.find_opt uid2 d in
-          match (symConst1, symConst2) with
-          | Const i, Const j -> UidM.add u (SymConst.Const (static_binop i j)) d
-          | NonConst, _ | _, NonConst -> UidM.add u SymConst.NonConst d 
-          | UndefConst, _ | _, UndefConst -> UidM.add u SymConst.UndefConst d
-        )
-      | Id uid, Const j -> (
-        let (Some symConst) = UidM.find_opt uid d in
-        match symConst with
-          | Const i -> UidM.add u (SymConst.Const (static_binop i j)) d
-          | NonConst -> UidM.add u SymConst.NonConst d 
-          | UndefConst -> UidM.add u SymConst.UndefConst d
-      )
-      | Const i, Id uid -> (
-        let (Some symConst) = UidM.find_opt uid d in
-        match symConst with
-          | Const j -> UidM.add u (SymConst.Const (static_binop i j)) d
-          | NonConst -> UidM.add u SymConst.NonConst d 
-          | UndefConst -> UidM.add u SymConst.UndefConst d
-      )
-      | Const i, Const j -> UidM.add u (SymConst.Const (static_binop i j)) d
+      op_flow static_binop (operand1, operand2)
   )
   | Icmp (cnd, ty, operand1, operand2) -> (
     let static_icmp i j = 
@@ -85,37 +96,29 @@ let insn_flow (u,i:uid * insn) (d:fact) : fact =
       | Sgt -> if Int64.compare i j = 1 then 1L else 0L
       | Sge -> if Int64.compare i j > -1 then 1L else 0L
     in
-    match (operand1, operand2) with
-    | Id uid1, Id uid2 -> (
-        let (Some symConst1), (Some symConst2) = UidM.find_opt uid1 d, UidM.find_opt uid2 d in
-        match (symConst1, symConst2) with
-        | Const i, Const j -> UidM.add u (SymConst.Const (static_icmp i j)) d
-        | NonConst, _ | _, NonConst -> UidM.add u SymConst.NonConst d 
-        | UndefConst, _ | _, UndefConst -> UidM.add u SymConst.UndefConst d
-      )
-    | Id uid, Const j -> (
-      let (Some symConst) = UidM.find_opt uid d in
-      match symConst with
-        | Const i -> UidM.add u (SymConst.Const (static_icmp i j)) d
-        | NonConst -> UidM.add u SymConst.NonConst d 
-        | UndefConst -> UidM.add u SymConst.UndefConst d
-    )
-    | Const i, Id uid -> (
-      let (Some symConst) = UidM.find_opt uid d in
-      match symConst with
-        | Const j -> UidM.add u (SymConst.Const (static_icmp i j)) d
-        | NonConst -> UidM.add u SymConst.NonConst d 
-        | UndefConst -> UidM.add u SymConst.UndefConst d
-    )
-    | Const i, Const j -> UidM.add u (SymConst.Const (static_icmp i j)) d
+    op_flow static_icmp (operand1, operand2)
   )
-  | Store _ -> UidM.add u SymConst.UndefConst d
-  | Call (Void, _, _) -> UidM.add u SymConst.UndefConst d
-
-  | _ -> UidM.add u SymConst.NonConst d
+  | Store _ 
+  | Call (Void, _, _) -> UidM.add u SymConst.UndefConst d 
+  | _ -> UidM.add u SymConst.NonConst d 
 
 (* The flow function across terminators is trivial: they never change const info *)
 let terminator_flow (t:terminator) (d:fact) : fact = d
+
+let join_facts (d1: fact) (d2: fact) : fact = 
+  let f (key: uid) (s1: SymConst.t option) (s2: SymConst.t option) = 
+    let f' k (v1:SymConst.t) (v2:SymConst.t) : SymConst.t option = 
+      match (v1, v2) with 
+      | Const i, Const j -> if i = j then Some (Const i) else Some UndefConst
+      | NonConst, _ | _, NonConst -> Some NonConst
+      | UndefConst, _ | _, UndefConst -> Some UndefConst
+    in
+    match (s1, s2) with
+    | None, (Some v)  
+    | (Some v), None        -> Some v
+    | (Some v1), (Some v2)  -> f' key v1 v2
+  in
+  UidM.merge f d1 d2 
 
 (* module for instantiating the generic framework --------------------------- *)
 module Fact =
@@ -138,7 +141,7 @@ module Fact =
     (* The constprop analysis should take the meet over predecessors to compute the
        flow into a node. You may find the UidM.merge function useful *)
     let combine (ds:fact list) : fact = 
-      failwith "Constprop.Fact.combine unimplemented"
+      List.fold_left join_facts UidM.empty ds
   end
 
 (* instantiate the general framework ---------------------------------------- *)
@@ -154,10 +157,12 @@ let analyze (g:Cfg.t) : Graph.t =
   (* the flow into the entry node should indicate that any parameter to the
      function is not a constant *)
   let cp_in = List.fold_right 
-    (fun (u,_) -> UidM.add u SymConst.NonConst)
+    (fun (u,_) d -> UidM.add u SymConst.NonConst d)
     g.Cfg.args UidM.empty 
   in
   let fg = Graph.of_cfg init cp_in g in
+  
+  (* print_endline @@ Graph.to_string fg; *)
   Solver.solve fg
 
 
