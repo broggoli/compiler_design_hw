@@ -114,6 +114,7 @@ let join_facts (d1: fact) (d2: fact) : fact =
       | UndefConst, _ | _, UndefConst -> Some UndefConst
     in
     match (s1, s2) with
+    | None, None            -> None 
     | None, (Some v)  
     | (Some v), None        -> Some v
     | (Some v1), (Some v2)  -> f' key v1 v2
@@ -174,9 +175,73 @@ let run (cg:Graph.t) (cfg:Cfg.t) : Cfg.t =
   
 
   let cp_block (l:Ll.lbl) (cfg:Cfg.t) : Cfg.t =
-    let b = Cfg.block cfg l in
-    let cb = Graph.uid_out cg l in
-    failwith "Constprop.cp_block unimplemented"
+    let b : Ll.block = Cfg.block cfg l in
+    let cb : uid -> Fact.t = Graph.uid_out cg l in
+    let extract_uid = function
+        | Id uid -> Some uid 
+        | _ -> None
+    in
+    let replace_opnd uid d opnd: Ll.operand = 
+      let uid_opt = extract_uid opnd in
+      match uid_opt with 
+      | Some uid -> ( 
+          match UidM.find_opt uid d with
+          | Some (Const i) -> Ll.Const i
+          | _ -> opnd 
+      )
+      | None -> opnd
+    in
+    let { insns = insns; term = term} = b in
+
+    let replace_term (uid, term) = 
+      let f = cb uid in
+      let replace_opnd = replace_opnd uid f in
+      let upd_term = match term with 
+        | Ret (ty, operand_opt) -> (
+          match operand_opt with
+          | Some opnd -> Ret (ty, Some (replace_opnd opnd))
+          | None -> Ret (ty, operand_opt)
+        )
+        | Cbr (operand, lbl1, lbl2) ->
+            Cbr (replace_opnd operand, lbl1, lbl2)
+        | t -> t
+      in
+      uid, upd_term
+    in
+    let replace_insn (uid, insn) = 
+      let f = cb uid in
+      let replace_opnd = replace_opnd uid f in
+      let upd_insn = match insn with
+      | Binop (bop, ty, operand1, operand2) ->
+          Binop (bop, ty, replace_opnd operand1, replace_opnd operand2)
+      | Icmp (cnd, ty, operand1, operand2)  -> 
+          Icmp (cnd, ty, replace_opnd operand1, replace_opnd operand2)
+      | Store (ty, operand1, operand2) ->
+          Store (ty, replace_opnd operand1, replace_opnd operand2)
+      | Load (ty, operand) ->
+          Load (ty, replace_opnd operand)
+      | Call (ty, operand, opnd_list) ->
+          let repaced_args = List.map (fun (ty, opnd) -> ty, replace_opnd opnd) opnd_list in
+          Call (ty, replace_opnd operand, repaced_args)
+      | Bitcast (ty, operand, ty2) ->
+          Bitcast (ty, replace_opnd operand, ty2)
+      | Gep (ty, operand, opnd_list) ->
+          let repaced_args = List.map replace_opnd opnd_list in
+          Gep (ty, replace_opnd operand, repaced_args)
+      | i -> i
+      in
+      uid, upd_insn
+    in
+    let new_insns = List.map replace_insn insns in
+    let new_term = replace_term term in
+    let new_block = {insns = new_insns; term = new_term} in
+    let new_blocks = LblM.update (fun _ -> new_block) l cfg.blocks in
+    { blocks = new_blocks
+    ; preds = cfg.preds
+    ; ret_ty = cfg.ret_ty
+    ; args = cfg.args
+    }  
+
   in
 
   LblS.fold cp_block (Cfg.nodes cfg) cfg
