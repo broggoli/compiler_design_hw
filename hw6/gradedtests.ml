@@ -163,7 +163,7 @@ let dfa_alias_file tests =
 let dfa_constprop_file tests =
   let open Constprop in
   let analyze f = Graph.dfa (analyze f) in
-  let printer k f = Printf.sprintf "%s %s" (Lbl.to_string k) (Constprop.Fact.to_string f) in      
+  let printer k f = Printf.sprintf "%s \n%s" (Lbl.to_string k) (Constprop.Fact.to_string f) in      
   List.map (fun (path, ans) ->
     ("constprop: " ^ path, 
      fun () -> ll_dfa_file_test path (throw_key_diff Fact.compare printer) analyze ans)) tests

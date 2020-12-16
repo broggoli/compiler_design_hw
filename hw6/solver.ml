@@ -111,6 +111,7 @@ module Make (Fact : FACT) (Graph : DFA_GRAPH with type fact := Fact.t) =
               else 
                 Graph.NodeS.remove n work_list
             in
+
             aux new_graph new_work_list
         )
       in
