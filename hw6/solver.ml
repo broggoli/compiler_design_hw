@@ -101,7 +101,8 @@ module Make (Fact : FACT) (Graph : DFA_GRAPH with type fact := Fact.t) =
             let prev_nodes = Graph.NodeS.elements (Graph.preds g n) in
             let prev_facts = List.map (Graph.out g) prev_nodes in
             let input : Fact.t = Fact.combine(prev_facts) in
-            let new_out = Graph.flow g n input in
+            let flow = Graph.flow g n in
+            let new_out = flow input in
             let new_graph = Graph.add_fact n new_out g in
             let new_work_list = 
               if Fact.compare old_out new_out <> 0 

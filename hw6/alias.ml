@@ -34,7 +34,8 @@ type fact = SymPtr.t UidM.t
 
  *)
 let insn_flow ((u,i):uid * insn) (d:fact) : fact =
-  match i with 
+
+  let res = match i with 
   (* After an alloca, the defined UID is the unique name for a stack slot *)
   | Alloca _ ->  UidM.add u SymPtr.Unique d
 
@@ -48,7 +49,9 @@ let insn_flow ((u,i):uid * insn) (d:fact) : fact =
         else res
     | _ -> d
   )
-  | Store (Ptr _, Id uid, _) -> UidM.update (fun x -> SymPtr.MayAlias) uid d
+  | Store (Ptr _, Id uid, _) -> 
+      let res = UidM.update_or SymPtr.UndefAlias (fun _ -> SymPtr.MayAlias) uid d in
+      res
   (* A pointer returned by a load, call, bitcast, or GEP may be aliased *)
   | Load (Ptr (Ptr _), _) -> UidM.add u SymPtr.MayAlias d
   | Call  (Ptr _, _, opnd_list) -> ( 
@@ -67,6 +70,8 @@ let insn_flow ((u,i):uid * insn) (d:fact) : fact =
         UidM.add u SymPtr.MayAlias res
   )
   | _ -> d
+  in
+  res
 
 
 (* The flow function across terminators is trivial: they never change alias info *)
@@ -74,20 +79,20 @@ let terminator_flow t (d:fact) : fact = d
 
 let join_facts (d1: fact) (d2: fact) : fact = 
   let f (key: uid) (s1: SymPtr.t option) (s2: SymPtr.t option) = 
-    let f' k v1 v2 = 
+    let f' k (v1 : SymPtr.t) (v2 : SymPtr.t): SymPtr.t = 
       match (v1, v2) with 
-      | SymPtr.MayAlias, SymPtr.Unique
-      | SymPtr.Unique, SymPtr.MayAlias -> Some SymPtr.MayAlias
-      | SymPtr.Unique, SymPtr.UndefAlias 
-      | SymPtr.UndefAlias, SymPtr.Unique -> Some SymPtr.Unique
-      | SymPtr.UndefAlias, SymPtr.MayAlias
-      | SymPtr.MayAlias, SymPtr.UndefAlias -> Some SymPtr.MayAlias
-      | n, _ -> Some n
+      | MayAlias, Unique
+      | Unique, MayAlias -> MayAlias
+      | Unique, UndefAlias 
+      | UndefAlias, Unique -> Unique
+      | UndefAlias, MayAlias
+      | MayAlias, UndefAlias -> MayAlias
+      | n, _ -> n
     in
     match (s1, s2) with
     | None, None -> None
     | (Some v), None | None, (Some v) -> Some v
-    | (Some v1), (Some v2) -> f' key v1 v2
+    | (Some v1), (Some v2) -> Some (f' key v1 v2)
   in
   UidM.merge f d1 d2 
 
