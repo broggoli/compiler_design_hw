@@ -780,19 +780,22 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
   let adj_set =
     let stmts =
       fold_fdecl
-        (fun ver (x, _) -> UidSet.add x ver)
+        (fun ver (x, _) -> ver)
         (fun ver _ -> ver)
         (fun ver (x, i) -> if insn_assigns i then UidSet.add x ver else ver)
         (fun ver _ -> ver)
         UidSet.empty f
     in
-    (* UidSet.iter (fun s -> UidSet.iter (Printf.printf "%s, ") (live.live_in s); Printf.printf "of %s\n" s) stmts; *)
-    let add_conflicts_of_var conflicts var adj' =
+    (*
+    UidSet.iter (fun s -> Printf.printf "%s\n" s; try live.live_in s; () with Not_found -> Printf.printf "Not_found\n"; ()) stmts;
+    Printf.printf "C";
+    UidSet.iter (fun s -> UidSet.iter (Printf.printf "%s, ") (live.live_in s); Printf.printf "of %s\n" s) stmts;
+    *)let add_conflicts_of_var conflicts var adj' =
       let to_add = (UidSet.remove var conflicts) in
       UidMap.update_or UidSet.empty (UidSet.union to_add) var adj'
     in
     let add_conflicts_of_stmt stmt adj' =
-      let lives = live.live_in stmt in
+      let lives = UidSet.add stmt (live.live_in stmt) in
       UidSet.fold (add_conflicts_of_var lives) lives adj'
     in
     let res = UidSet.fold add_conflicts_of_stmt stmts UidMap.empty in
@@ -815,7 +818,7 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
   (* try coloring *)
   let rec color adj =
     let rec kempe adj =
-      if (UidMap.cardinal adj <=  !n_arg)
+      if UidMap.for_all (fun v n -> UidMap.mem v lo_init) adj
       then Some lo_init 
       else (
         (* find vertex deg v < k *)
@@ -827,9 +830,11 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
           | None -> None
           | Some col -> (
             (* color v with a remaining color (heuristic?) *)
-            UidSet.iter (Printf.printf "%s, ") (neigh v adj);
-            Printf.printf " neighs of %s\n" v;
+            (*UidSet.iter (Printf.printf "%s, ") (neigh v adj); Printf.printf " neighs of %s\n" v;
             UidMap.iter (fun x l -> Printf.printf "%s -> %s\n" x (Alloc.str_loc l)) col;
+            Printf.printf "%i vs %i\n" !n_arg (UidMap.cardinal adj);
+            print_adj adj;
+            print_adj adj_set;*)
             let used_locs = UidSet.fold (fun w l -> LocSet.add (UidMap.find w col) l) (neigh v adj) LocSet.empty in
             let available_locs = LocSet.diff pal used_locs in
             let loc = LocSet.choose available_locs in
@@ -852,6 +857,8 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
       | Some l -> l
       | None -> (
         (* greedy strategy *)
+        (*Printf.printf "%s\n" v;
+        print_adj adj_set;*)
         let colored_neighs = UidSet.filter (fun w -> UidMap.mem w uid_to_loc) (neigh v adj_set) in
         let used_locs = UidSet.fold (fun w -> LocSet.add (UidMap.find w uid_to_loc)) colored_neighs LocSet.empty in
         let available_locs = LocSet.diff pal used_locs in
