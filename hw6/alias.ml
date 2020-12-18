@@ -43,7 +43,7 @@ let insn_flow ((u,i):uid * insn) (d:fact) : fact =
     match (from_ty, opnd, to_ty) with
     | (Ptr _, Id uid, ret_ty) -> 
         let ret_ptr = match ret_ty with Ptr _ -> true | _ -> false in 
-        let res = UidM.update (fun x -> SymPtr.MayAlias) uid d in
+        let res = UidM.update_or SymPtr.UndefAlias (fun x -> SymPtr.MayAlias) uid d in
         if ret_ptr 
         then UidM.add u SymPtr.MayAlias res
         else res
@@ -57,14 +57,14 @@ let insn_flow ((u,i):uid * insn) (d:fact) : fact =
   | Call  (Ptr _, _, opnd_list) -> ( 
       let aux (f:fact) (ty, uid) = 
         match (ty, uid) with 
-        | Ptr _, Id id -> UidM.update (fun _ -> SymPtr.MayAlias) id f
+        | Ptr _, Id id -> UidM.update_or SymPtr.UndefAlias (fun _ -> SymPtr.MayAlias) id f
         | _   -> f
       in
       List.fold_left aux (UidM.add u SymPtr.MayAlias d) opnd_list
     )
   | Gep (Ptr _, opnd, _) -> (
         let res = match opnd with
-          | Id uid -> UidM.update (fun _ -> SymPtr.MayAlias) uid d
+          | Id uid -> UidM.update_or SymPtr.UndefAlias (fun _ -> SymPtr.MayAlias) uid d
           | _ -> d
         in
         UidM.add u SymPtr.MayAlias res
