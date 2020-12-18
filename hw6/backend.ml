@@ -776,6 +776,18 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
       UidMap.empty f 
   in
 
+  let count_var =
+    fold_fdecl
+      (fun s _ -> s)
+      (fun s _ -> s)
+      (fun s (x, i) -> (
+        let lives = UidSet.add x (live.live_in x) in
+        let incr = (UidMap.update_or 0 ((+) 1)) in
+        if insn_assigns i then UidSet.fold incr lives s else s))
+      (fun s _ -> s)
+      UidMap.empty f
+  in
+
   (* build graph *)
   let adj_set =
     let stmts =
@@ -813,8 +825,12 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
     UidMap.remove v adj'
   in
   (* strategy to choose a node to remove if coloring fails *)
-  let annoying adj = fst @@ UidMap.choose (UidMap.filter (fun v n -> not (UidMap.mem v lo_init)) adj) in
-
+  let annoying adj =
+    let non_arg = (UidMap.filter (fun v n -> not (UidMap.mem v lo_init)) adj) in
+    let max k _ m = if UidMap.find k count_var > UidMap.find m count_var then k else m in
+    let arb_ver = (fst @@ UidMap.choose non_arg) in
+    UidMap.fold max non_arg arb_ver;
+  in
   (* try coloring *)
   let rec color adj =
     let rec kempe adj =
