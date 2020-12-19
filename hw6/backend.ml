@@ -776,25 +776,13 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
       UidMap.empty f 
   in
 
-  let count_var =
-    fold_fdecl
-      (fun s _ -> s)
-      (fun s _ -> s)
-      (fun s (x, i) -> (
-        let lives = UidSet.add x (live.live_in x) in
-        let incr = (UidMap.update_or 0 ((+) 1)) in
-        if insn_assigns i then UidSet.fold incr lives s else s))
-      (fun s _ -> s)
-      UidMap.empty f
-  in
-
   (* build graph *)
   let adj_set =
     let stmts =
       fold_fdecl
         (fun ver (x, _) -> ver)
         (fun ver _ -> ver)
-        (fun ver (x, i) -> if true then UidSet.add x ver else ver)
+        (fun ver (x, i) -> UidSet.add x ver)
         (fun ver (x, t) -> UidSet.add x ver)
         UidSet.empty f
     in
@@ -811,8 +799,7 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
       let adj'' = UidMap.update_or UidSet.empty (fun x -> x) stmt adj' in
       UidSet.fold (add_conflicts_of_var lives) lives adj''
     in
-    let res = UidSet.fold add_conflicts_of_stmt stmts UidMap.empty in
-    res
+    UidSet.fold add_conflicts_of_stmt stmts UidMap.empty
   in
 
   (* convenience graph functions *)
