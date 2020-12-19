@@ -794,8 +794,8 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
       fold_fdecl
         (fun ver (x, _) -> ver)
         (fun ver _ -> ver)
-        (fun ver (x, i) -> if insn_assigns i then UidSet.add x ver else ver)
-        (fun ver _ -> ver)
+        (fun ver (x, i) -> if true then UidSet.add x ver else ver)
+        (fun ver (x, t) -> UidSet.add x ver)
         UidSet.empty f
     in
     (*
@@ -807,8 +807,9 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
       UidMap.update_or UidSet.empty (UidSet.union to_add) var adj'
     in
     let add_conflicts_of_stmt stmt adj' =
-      let lives = UidSet.add stmt (live.live_in stmt) in
-      UidSet.fold (add_conflicts_of_var lives) lives adj'
+      let lives = (live.live_in stmt) in
+      let adj'' = UidMap.update_or UidSet.empty (fun x -> x) stmt adj' in
+      UidSet.fold (add_conflicts_of_var lives) lives adj''
     in
     let res = UidSet.fold add_conflicts_of_stmt stmts UidMap.empty in
     res
@@ -827,7 +828,7 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
   (* strategy to choose a node to remove if coloring fails *)
   let annoying adj =
     let non_arg = (UidMap.filter (fun v n -> not (UidMap.mem v lo_init)) adj) in
-    let max k _ m = if UidMap.find k count_var > UidMap.find m count_var then k else m in
+    let max k _ m = if UidSet.cardinal (neigh k adj) > UidSet.cardinal (neigh k adj) then k else m in
     let arb_ver = (fst @@ UidMap.choose non_arg) in
     UidMap.fold max non_arg arb_ver;
   in
@@ -847,10 +848,7 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
           | Some col -> (
             (* color v with a remaining color (heuristic?) *)
             (*UidSet.iter (Printf.printf "%s, ") (neigh v adj); Printf.printf " neighs of %s\n" v;
-            UidMap.iter (fun x l -> Printf.printf "%s -> %s\n" x (Alloc.str_loc l)) col;
-            Printf.printf "%i vs %i\n" !n_arg (UidMap.cardinal adj);
-            print_adj adj;
-            print_adj adj_set;*)
+            UidMap.iter (fun x l -> Printf.printf "%s -> %s\n" x (Alloc.str_loc l)) col;*)
             let used_locs = UidSet.fold (fun w l -> LocSet.add (UidMap.find w col) l) (neigh v adj) LocSet.empty in
             let available_locs = LocSet.diff pal used_locs in
             let loc = LocSet.choose available_locs in
@@ -865,7 +863,6 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
     | Some col -> col
   in
   let uid_to_loc = color adj_set in
-
   (* Allocates remaining uid greedily based on interference information *)
   let allocate uid_to_loc v =
     let loc =
