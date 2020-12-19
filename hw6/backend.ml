@@ -765,7 +765,15 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
                     |> remove (Alloc.LReg Rcx)
                    )
   in
-  let k = LocSet.cardinal pal in
+  let k = LocSet.cardinal pal in 
+
+  let choose_min loc = 
+    if LocSet.mem (Alloc.LReg Rdi) loc then (Alloc.LReg Rdi)
+    else(
+      if LocSet.mem (Alloc.LReg Rsi) loc then (Alloc.LReg Rsi)
+      else LocSet.choose loc
+    )
+  in
 
   let precolor =
     fold_fdecl
@@ -781,7 +789,8 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
   let print_adj adj = UidMap.iter (fun v n -> UidSet.iter (Printf.printf "%s, ") n; Printf.printf "neighs of %s\n" v) adj in
   let add_to v to_add adj = UidMap.update_or UidSet.empty (UidSet.union to_add) v adj in
   let add_edge v w adj = let adj' = add_to v (UidSet.singleton w) adj in add_to w (UidSet.singleton v) adj' in
-  let neigh v adj = (UidMap.find v adj) in
+  let neigh v adj = UidMap.find v adj in
+  let neigh_or v adj = UidMap.find_or UidSet.empty adj v in
   let rem v adj =
     (* remove v in all neighbors *)
     let rem_from_neigh w adj = UidMap.add w (UidSet.remove v (neigh w adj)) adj in
@@ -836,6 +845,7 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
     let arb_ver = (fst @@ UidMap.choose non_arg) in
     UidMap.fold max non_arg arb_ver;
   in
+
   (* try coloring *)
   let rec color adj =
     let rec kempe adj =
@@ -854,8 +864,14 @@ let better_layout (f:Ll.fdecl) (live:liveness) : layout =
             (*UidSet.iter (Printf.printf "%s, ") (neigh v adj); Printf.printf " neighs of %s\n" v;
             UidMap.iter (fun x l -> Printf.printf "%s -> %s\n" x (Alloc.str_loc l)) col;*)
             let used_locs = UidSet.fold (fun w l -> LocSet.add (UidMap.find w col) l) (neigh v adj) LocSet.empty in
-            let available_locs = LocSet.diff pal used_locs in
-            let loc = LocSet.choose available_locs in
+            let avail_loc = LocSet.diff pal used_locs in
+            let loc =
+              let col_neigh = UidSet.filter (fun w -> UidMap.mem w col) (neigh_or v move_adj) in
+              let neigh_loc = UidSet.fold (fun w l -> LocSet.add (UidMap.find w col) l) col_neigh LocSet.empty in
+              if LocSet.is_empty (LocSet.inter neigh_loc avail_loc)
+              then choose_min avail_loc
+              else choose_min (LocSet.inter neigh_loc avail_loc)
+            in
             Some (UidMap.add v loc col)
           )
         )
